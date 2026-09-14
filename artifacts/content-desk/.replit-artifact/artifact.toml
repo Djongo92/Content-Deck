@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Content Desk"
+description = "A multi-client content operations workspace for planning campaigns, producing channel-specific deliverables, managing approvals and assets, scheduling publication, repurposing content, using AI writing assistance, and tracking performance and retainer capacity."
+version = "1.0.0"
+id = "artifacts/content-desk"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24484
+
+[services.development]
+run = "pnpm --filter @workspace/content-desk run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/content-desk", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/content-desk/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24484"
+BASE_PATH = "/"

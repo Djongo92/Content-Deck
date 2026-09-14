@@ -1,0 +1,2 @@
+- [Content Desk architecture](content-desk-architecture.md) — server-sync model, migration heuristic checks clients/deliverables only; review links unauthenticated by design (add auth before public publish); screenshot browser can't verify migration.
+- [Publication tracking](publication-tracking.md) — actual publish timestamps drive completed-content metrics; scheduled dates remain planning data.

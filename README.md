@@ -51,10 +51,46 @@ pnpm --filter db run push                     # push DB schema changes (dev only
 
 | Variable | Used for |
 |---|---|
-| `DATABASE_URL` | Postgres connection string |
-| `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL` | AI writing features (`lib/integrations-openai-ai-server`). Set on Replit via its AI Integrations gateway — off-Replit, point these at your own OpenAI-compatible endpoint/key. |
-| `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` | Media library storage (`artifacts/api-server/src/lib/objectStorage.ts`), wired for Replit Object Storage — swap for equivalent config if hosting elsewhere. |
+| `DATABASE_URL` | Postgres connection string. Required — the process won't boot without it. |
+| `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL` | AI writing features (`lib/integrations-openai-ai-server`). `BASE_URL` is required at boot. Set on Replit via its AI Integrations gateway — off-Replit, point these at your own OpenAI-compatible endpoint/key. |
+| `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` | Media library storage. Not required to boot, but see "Known gaps" below — as shipped this doesn't work off-Replit at all, regardless of what these are set to. |
+| `PORT` | Port the server listens on. Also serves the built frontend when `NODE_ENV=production` (see Deploying). |
 | `NODE_ENV`, `LOG_LEVEL` | Standard server config |
+
+## Deploying (off Replit)
+
+Replit originally ran this as three separate services stitched together by
+path-based routing (frontend static build, API, and a dev-only mockup
+sandbox) — a model generic hosts don't understand. `artifacts/api-server/src/app.ts`
+now also serves the built frontend itself (same origin, no separate static
+host, which also preserves the "no CORS middleware" assumption already
+baked into that file) whenever `NODE_ENV=production` and a frontend build is
+present next to it on disk.
+
+A `Dockerfile` at the repo root builds both and runs the combined server —
+verified locally end to end (clean install → typecheck → both builds → a
+live HTTP smoke test of `/api/healthz`, `/`, a client-side route, a static
+asset, and an unmatched `/api/*` 404) from a from-scratch checkout. The
+Docker image itself wasn't build-tested (no Docker daemon in the environment
+this was ported from), but every step it runs was.
+
+`render.yaml` is a ready-to-go [Render](https://render.com) Blueprint (free
+tier): connect this repo, Render reads the Dockerfile and prompts you for
+the `sync: false` env vars (`DATABASE_URL` etc. — never checked into the
+file). The same `Dockerfile` works unmodified on Railway, Fly.io, or any
+other container host if you'd rather use one of those instead.
+
+## Known gaps after leaving Replit
+
+- **Media library uploads are broken as shipped.** `objectStorage.ts` talks
+  to a hardcoded `http://127.0.0.1:1106` — Replit's local credential sidecar
+  for its Object Storage integration. That endpoint doesn't exist off-Replit,
+  so uploads will fail regardless of what `PUBLIC_OBJECT_SEARCH_PATHS` /
+  `PRIVATE_OBJECT_DIR` are set to. Everything else works fine without it;
+  fixing uploads means swapping this for a real storage backend (S3-compatible,
+  Supabase Storage, GCS with real service-account credentials, etc.).
+- **AI writing features** need `AI_INTEGRATIONS_OPENAI_BASE_URL`/`_API_KEY`
+  pointed at a real OpenAI-compatible endpoint instead of Replit's gateway.
 
 ## Known gotchas (carried over from `.agents/memory/`)
 

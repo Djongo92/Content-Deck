@@ -53,7 +53,7 @@ pnpm --filter db run push                     # push DB schema changes (dev only
 |---|---|
 | `DATABASE_URL` | Postgres connection string. Required — the process won't boot without it. |
 | `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL` | AI writing features (`lib/integrations-openai-ai-server`). `BASE_URL` is required at boot. Set on Replit via its AI Integrations gateway — off-Replit, point these at your own OpenAI-compatible endpoint/key. |
-| `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` | Media library storage. Not required to boot, but see "Known gaps" below — as shipped this doesn't work off-Replit at all, regardless of what these are set to. |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_STORAGE_BUCKET` | Media library storage (see "Media storage" below). Not required to boot — uploads just won't work until set. |
 | `PORT` | Port the server listens on. Also serves the built frontend when `NODE_ENV=production` (see Deploying). |
 | `NODE_ENV`, `LOG_LEVEL` | Standard server config |
 
@@ -80,17 +80,44 @@ the `sync: false` env vars (`DATABASE_URL` etc. — never checked into the
 file). The same `Dockerfile` works unmodified on Railway, Fly.io, or any
 other container host if you'd rather use one of those instead.
 
-## Known gaps after leaving Replit
+## Media storage
 
-- **Media library uploads are broken as shipped.** `objectStorage.ts` talks
-  to a hardcoded `http://127.0.0.1:1106` — Replit's local credential sidecar
-  for its Object Storage integration. That endpoint doesn't exist off-Replit,
-  so uploads will fail regardless of what `PUBLIC_OBJECT_SEARCH_PATHS` /
-  `PRIVATE_OBJECT_DIR` are set to. Everything else works fine without it;
-  fixing uploads means swapping this for a real storage backend (S3-compatible,
-  Supabase Storage, GCS with real service-account credentials, etc.).
-- **AI writing features** need `AI_INTEGRATIONS_OPENAI_BASE_URL`/`_API_KEY`
-  pointed at a real OpenAI-compatible endpoint instead of Replit's gateway.
+`objectStorage.ts` originally talked to `http://127.0.0.1:1106` — Replit's
+local credential sidecar for its Object Storage integration, which doesn't
+exist off-Replit. It's now backed by **Supabase Storage** instead (bucket
+`content-desk-media`, public, 200MB per-file limit), using the same Supabase
+project as the database:
+
+- Uploads go `browser -> PUT /api/storage/uploads/direct/:id -> this server
+  -> Supabase Storage`, rather than a client-side PUT straight to a
+  cloud-signed URL — Supabase's own signed-upload flow needs a different
+  request shape than the plain PUT this app's frontend already does, so
+  routing bytes through the server avoided a frontend change.
+- Reads (`GET /api/storage/objects/*`) proxy through this server too,
+  unchanged from how they always worked.
+- Uses `SUPABASE_ANON_KEY`, not a secret service-role key: two RLS policies
+  on `storage.objects`, scoped to just this bucket, let the anon role
+  read/write it directly (migration `media_bucket_public_policies`). That
+  matches how the rest of this app already works — single-user, no real
+  auth, uploads intentionally public-by-link — so it's not a lower security
+  bar, just one fewer secret to configure. The anon key is meant to be
+  public; it's checked into `render.yaml` on purpose.
+- Verified end-to-end against the real bucket: requested an upload URL,
+  PUT a file through it, GET it back through the app, diffed the bytes.
+
+**AI writing features** still need `AI_INTEGRATIONS_OPENAI_BASE_URL`/`_API_KEY`
+pointed at a real OpenAI-compatible endpoint instead of Replit's gateway.
+
+## Restoring existing data
+
+Server-side JSON backups are a built-in feature, not something bolted on for
+this port — see Settings → Data & Backups in the app itself:
+`store.exportBackup()` / `importBackup()` client-side, and
+`GET/POST /api/backups` server-side (`routes/state.ts`), storing full
+`{clients, briefs, deliverables, events, versions, assets, tasks, notes,
+metrics, templates, voiceExamples}` snapshots in the `snapshots` table. If an
+existing backup file is in this shape, Settings → Import Backup is the
+straightforward way to load it in — no direct database access needed.
 
 ## Known gotchas (carried over from `.agents/memory/`)
 

@@ -19,11 +19,12 @@ services:
         sync: false
       - key: AI_INTEGRATIONS_OPENAI_API_KEY
         sync: false
-      # Media library uploads: tied to Replit's own storage sidecar as shipped
-      # (see README "Known gaps after leaving Replit") -- app boots and the
-      # rest of it works fine without these, uploads just won't until that's
-      # replaced with a real storage backend.
-      - key: PUBLIC_OBJECT_SEARCH_PATHS
-        sync: false
-      - key: PRIVATE_OBJECT_DIR
-        sync: false
+      # Media library uploads -> Supabase Storage (see README "Media storage").
+      # The anon key is not a secret (it's meant to be public; the bucket's
+      # RLS policies are what actually gate access) so it's safe to check in.
+      - key: SUPABASE_URL
+        value: https://qpoqotxaktzhytdkyeeh.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwb3FvdHhha3R6aHl0ZGt5ZWVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzOTc3MzEsImV4cCI6MjEwNDk3MzczMX0.xonu887TEOKpbkVsQsK4WOYPIEWdX6WOtrwSimzF7rY
+      - key: SUPABASE_STORAGE_BUCKET
+        value: content-desk-media

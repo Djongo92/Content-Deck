@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, Send, Loader2 } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMutateStore, useStore } from '@/hooks/use-store';
-import { api } from '@/lib/api';
+import { api, type ProposedChange } from '@/lib/api';
 import { LAUNCH_PHASE_LABELS, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchTask, STICKY_COLORS } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -21,8 +21,10 @@ type Tab = typeof TABS[number];
 type DiscussContext = { type: 'general' } | { type: 'task'; task: LaunchTask } | { type: 'gate'; gate: LaunchGate };
 
 export default function LaunchPage() {
+  const { launchTasks } = useStore();
   const [tab, setTab] = useState<Tab>('Overview');
   const [discussContext, setDiscussContext] = useState<DiscussContext | null>(null);
+  const [amendPhase, setAmendPhase] = useState<number | null>(null);
 
   return (
     <div className="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full">
@@ -55,13 +57,14 @@ export default function LaunchPage() {
       </div>
 
       {tab === 'Overview' && <OverviewTab onOpenRoadmap={() => setTab('Roadmap')} onDiscuss={setDiscussContext} />}
-      {tab === 'Roadmap' && <RoadmapTab onDiscuss={setDiscussContext} />}
+      {tab === 'Roadmap' && <RoadmapTab onDiscuss={setDiscussContext} onAmendPhase={setAmendPhase} />}
       {tab === 'Clients & Finances' && <ClientsFinancesTab />}
       {tab === 'Brand & Settings' && <BrandSettingsTab />}
       {tab === 'Notes' && <NotesTab />}
       {tab === 'Memo' && <MemoTab />}
 
       {discussContext && <DiscussPanel key={discussContext.type === 'general' ? 'general' : discussContext.type === 'task' ? `task-${discussContext.task.id}` : `gate-${discussContext.gate.id}`} context={discussContext} onClose={() => setDiscussContext(null)} />}
+      {amendPhase != null && <PhaseAmendPanel key={`amend-${amendPhase}`} phase={amendPhase} launchTasks={launchTasks} onClose={() => setAmendPhase(null)} />}
     </div>
   );
 }
@@ -310,7 +313,16 @@ function phaseDateRange(tasks: LaunchTask[]): string {
   return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`;
 }
 
-function PhaseStepper({ launchTasks }: { launchTasks: LaunchTask[] }) {
+const PHASE_GOALS = [
+  "Establish the groundwork before spending money or going public: know what you're selling, who you're selling it to, and that the name is actually safe to use.",
+  "Turn the foundation into things you can put in front of a prospect — case studies, a pricing one-pager, proposal templates — so a sales conversation doesn't start from zero.",
+  "Test the plan against reality before building anything permanent: talk to real prospects, see if the prices hold up, and start drafting the actual website copy.",
+  "Make sure the business can legally and financially carry new paid work — tax structure, contracts, invoicing — before taking on anything beyond Wonder Strings.",
+  "Get every launch-critical asset production-ready — the live site, the social presence, the content stockpile — and make the actual go/no-go call.",
+  "Announce the studio publicly and start working the network that's been building throughout the plan.",
+];
+
+function PhaseStepper({ launchTasks, onOpenPhase }: { launchTasks: LaunchTask[]; onOpenPhase: (phase: number) => void }) {
   const currentPhase = LAUNCH_PHASE_LABELS.findIndex((_, p) => launchTasks.some(t => t.phase === p && !t.done));
   const resolvedCurrent = currentPhase === -1 ? LAUNCH_PHASE_LABELS.length - 1 : currentPhase;
 
@@ -322,7 +334,7 @@ function PhaseStepper({ launchTasks }: { launchTasks: LaunchTask[] }) {
         const complete = tasks.length > 0 && done === tasks.length;
         const isCurrent = p === resolvedCurrent && !complete;
         return (
-          <div key={p} className="flex-1 min-w-[128px] flex flex-col items-center text-center px-1">
+          <div key={p} onClick={() => onOpenPhase(p)} className="flex-1 min-w-[128px] flex flex-col items-center text-center px-1 cursor-pointer rounded-lg py-1 hover:bg-secondary/40 transition-colors">
             <div className="flex w-full items-center">
               <div className={cn('h-px flex-1', p === 0 ? 'opacity-0' : complete || p < resolvedCurrent ? 'bg-primary' : 'bg-border')} />
               <div className={cn(
@@ -341,6 +353,204 @@ function PhaseStepper({ launchTasks }: { launchTasks: LaunchTask[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function PhaseModal({
+  phase, launchTasks, onClose, onOpenTask, onAmend,
+}: {
+  phase: number;
+  launchTasks: LaunchTask[];
+  onClose: () => void;
+  onOpenTask: (task: LaunchTask) => void;
+  onAmend: (phase: number) => void;
+}) {
+  const { toggleLaunchTask } = useMutateStore();
+  const tasks = launchTasks.filter(t => t.phase === phase);
+  const done = tasks.filter(t => t.done).length;
+  const label = LAUNCH_PHASE_LABELS[phase];
+  const goal = PHASE_GOALS[phase];
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-xl max-h-[85vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <div>
+            <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Phase {phase + 1} of {LAUNCH_PHASE_LABELS.length}</p>
+            <h2 className="font-serif text-xl">{label}</h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="text-sm text-muted-foreground mb-2">{phaseDateRange(tasks)} · {done}/{tasks.length} done</p>
+        <div className="h-1.5 rounded-full bg-secondary overflow-hidden mb-4">
+          <div className="h-full bg-primary" style={{ width: `${tasks.length ? (100 * done) / tasks.length : 0}%` }} />
+        </div>
+
+        <div className="bg-secondary/40 rounded-md p-3 mb-4">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">What this phase is actually for</p>
+          <p className="text-sm">{goal}</p>
+        </div>
+
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Tasks</p>
+        <div className="space-y-1 max-h-[220px] overflow-y-auto mb-4">
+          {tasks.map(t => (
+            <div key={t.id} onClick={() => onOpenTask(t)} className="flex items-center gap-2 text-sm py-1.5 px-1 rounded cursor-pointer hover:bg-secondary/40">
+              <input type="checkbox" checked={t.done} onClick={e => e.stopPropagation()} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-3.5 h-3.5 shrink-0" />
+              <span className={cn('flex-1 min-w-0 truncate', t.done && 'line-through text-muted-foreground')}>{t.title}</span>
+              <span className="text-[11px] text-muted-foreground shrink-0">{t.due || 'No date'}</span>
+            </div>
+          ))}
+          {tasks.length === 0 && <p className="text-xs text-muted-foreground py-2">No tasks in this phase yet.</p>}
+        </div>
+
+        <div className="flex justify-end pt-3 border-t border-border">
+          <button onClick={() => onAmend(phase)} className="flex items-center gap-1.5 text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md">
+            <Sparkles className="w-3.5 h-3.5" /> Discuss & amend this phase
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type AmendTurn =
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; changes: ProposedChange[]; selected: boolean[]; applied: boolean };
+
+function describeChange(change: ProposedChange, launchTasks: LaunchTask[]): string {
+  if (change.op === 'add') {
+    return `Add: "${change.title}"${change.due ? ` — due ${change.due}` : ''}${change.owner ? ` (${change.owner})` : ''}`;
+  }
+  const existing = launchTasks.find(t => t.id === change.taskId);
+  const name = existing?.title ?? 'a task';
+  if (change.op === 'delete') return `Remove: "${name}"`;
+  const parts: string[] = [];
+  if (change.title) parts.push(`title → "${change.title}"`);
+  if (change.due) parts.push(`due → ${change.due}`);
+  if (change.owner) parts.push(`owner → ${change.owner}`);
+  return `Update "${name}": ${parts.join(', ') || 'no field changes'}`;
+}
+
+function PhaseAmendPanel({ phase, launchTasks, onClose }: { phase: number; launchTasks: LaunchTask[]; onClose: () => void }) {
+  const { addLaunchTask, updateLaunchTask, deleteLaunchTask } = useMutateStore();
+  const [turns, setTurns] = useState<AmendTurn[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const label = LAUNCH_PHASE_LABELS[phase];
+
+  async function send() {
+    const question = input.trim();
+    if (!question || loading) return;
+    setInput('');
+    const history = turns.map(t => ({ role: t.role, content: t.content }));
+    setTurns(t => [...t, { role: 'user', content: question }]);
+    setLoading(true);
+    try {
+      const { reply, changes } = await api.launch.amendPhase(phase, question, history);
+      setTurns(t => [...t, { role: 'assistant', content: reply, changes, selected: changes.map(() => true), applied: false }]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'The advisor is temporarily unavailable.');
+      setTurns(t => t.slice(0, -1));
+      setInput(question);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleSelected(turnIndex: number, changeIndex: number) {
+    setTurns(ts => ts.map((t, i) => {
+      if (i !== turnIndex || t.role !== 'assistant') return t;
+      const selected = [...t.selected];
+      selected[changeIndex] = !selected[changeIndex];
+      return { ...t, selected };
+    }));
+  }
+
+  function applyBatch(turnIndex: number) {
+    const turn = turns[turnIndex];
+    if (turn.role !== 'assistant' || turn.applied) return;
+    let appliedCount = 0;
+    turn.changes.forEach((change, i) => {
+      if (!turn.selected[i]) return;
+      if (change.op === 'add') {
+        addLaunchTask({ title: change.title, due: change.due, owner: change.owner, phase });
+        appliedCount++;
+      } else if (change.op === 'update') {
+        if (!launchTasks.some(t => t.id === change.taskId && t.phase === phase)) return;
+        const patch: Partial<LaunchTask> = {};
+        if (change.title) patch.title = change.title;
+        if (change.due) patch.due = change.due;
+        if (change.owner) patch.owner = change.owner;
+        updateLaunchTask(change.taskId, patch);
+        appliedCount++;
+      } else if (change.op === 'delete') {
+        if (!launchTasks.some(t => t.id === change.taskId && t.phase === phase)) return;
+        deleteLaunchTask(change.taskId);
+        appliedCount++;
+      }
+    });
+    toast.success(appliedCount ? `Applied ${appliedCount} change${appliedCount === 1 ? '' : 's'} to the board` : 'Nothing selected to apply');
+    setTurns(ts => ts.map((t, i) => i === turnIndex ? { ...t, applied: true } : t));
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex justify-end bg-background/70 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border p-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <h2 className="font-serif text-lg">Discuss & amend</h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="px-4 pt-3">
+          <span className="inline-flex items-center text-[11px] font-medium rounded-full bg-primary/10 text-primary px-2.5 py-1">Phase: {label}</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {turns.length === 0 && (
+            <p className="text-sm text-muted-foreground">Brainstorm this phase out loud — add missing work, reschedule something, cut what doesn't matter. Approved changes land on the board immediately below.</p>
+          )}
+          {turns.map((t, i) => t.role === 'user' ? (
+            <div key={i} className="rounded-lg px-3 py-2 text-sm max-w-[90%] bg-primary text-primary-foreground ml-auto">{t.content}</div>
+          ) : (
+            <div key={i} className="space-y-2">
+              <div className="rounded-lg px-3 py-2 text-sm max-w-[90%] bg-secondary">{t.content}</div>
+              {t.changes.length > 0 && (
+                <div className="rounded-lg border border-border p-3 space-y-2 max-w-[95%]">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Proposed changes</p>
+                  {t.changes.map((change, ci) => (
+                    <label key={ci} className="flex items-start gap-2 text-xs cursor-pointer">
+                      <input type="checkbox" checked={t.selected[ci]} disabled={t.applied} onChange={() => toggleSelected(i, ci)} className="accent-primary w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>{describeChange(change, launchTasks)}</span>
+                    </label>
+                  ))}
+                  {t.applied ? (
+                    <p className="text-[11px] text-emerald-600 font-medium flex items-center gap-1 pt-1"><Check className="w-3 h-3" /> Applied to the board</p>
+                  ) : (
+                    <button onClick={() => applyBatch(i)} className="text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md mt-1">Apply selected changes</button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+          {loading && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking…</div>}
+        </div>
+
+        <div className="border-t border-border p-3 flex items-center gap-2">
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') send(); }}
+            placeholder={`Brainstorm "${label}"…`}
+            className="flex-1 bg-secondary border border-border rounded-md p-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+          />
+          <button onClick={send} disabled={!input.trim() || loading} className="bg-primary text-primary-foreground p-2 rounded-md disabled:opacity-50">
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -389,12 +599,13 @@ function WeeklyLoadHeatmap({ launchTasks }: { launchTasks: LaunchTask[] }) {
   );
 }
 
-function RoadmapTab({ onDiscuss }: { onDiscuss: (ctx: DiscussContext) => void }) {
+function RoadmapTab({ onDiscuss, onAmendPhase }: { onDiscuss: (ctx: DiscussContext) => void; onAmendPhase: (phase: number) => void }) {
   const { launchTasks, launchGates } = useStore();
   const { addLaunchTask, updateLaunchTask, toggleLaunchTask, updateLaunchGate } = useMutateStore();
   const [dragOverPhase, setDragOverPhase] = useState<number | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [openGateId, setOpenGateId] = useState<string | null>(null);
+  const [openPhaseId, setOpenPhaseId] = useState<number | null>(null);
   const openTask = launchTasks.find(t => t.id === openTaskId) ?? null;
   const openGate = launchGates.find(g => g.id === openGateId) ?? null;
 
@@ -413,7 +624,7 @@ function RoadmapTab({ onDiscuss }: { onDiscuss: (ctx: DiscussContext) => void })
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-xl font-serif mb-1">Where things stand</h2>
         <div className="h-2 rounded-full bg-secondary overflow-hidden mb-4"><div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} /></div>
-        <PhaseStepper launchTasks={launchTasks} />
+        <PhaseStepper launchTasks={launchTasks} onOpenPhase={setOpenPhaseId} />
       </div>
 
       <WeeklyLoadHeatmap launchTasks={launchTasks} />
@@ -504,6 +715,15 @@ function RoadmapTab({ onDiscuss }: { onDiscuss: (ctx: DiscussContext) => void })
 
       {openTask && <TaskModal task={openTask} onClose={() => setOpenTaskId(null)} onDiscuss={task => { setOpenTaskId(null); onDiscuss({ type: 'task', task }); }} />}
       {openGate && <GateModal gate={openGate} launchTasks={launchTasks} onClose={() => setOpenGateId(null)} onDiscuss={gate => { setOpenGateId(null); onDiscuss({ type: 'gate', gate }); }} />}
+      {openPhaseId != null && (
+        <PhaseModal
+          phase={openPhaseId}
+          launchTasks={launchTasks}
+          onClose={() => setOpenPhaseId(null)}
+          onOpenTask={task => { setOpenPhaseId(null); setOpenTaskId(task.id); }}
+          onAmend={phase => { setOpenPhaseId(null); onAmendPhase(phase); }}
+        />
+      )}
     </div>
   );
 }

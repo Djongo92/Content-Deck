@@ -75,7 +75,17 @@ export const api = {
 
     convertLead: (id: string) =>
       req<{ clientId: string }>(`/api/launch/leads/${encodeURIComponent(id)}/convert`, { method: 'POST', body: '{}' }),
+
+    amendPhase: (phase: number, question: string, history: { role: 'user' | 'assistant'; content: string }[]) =>
+      req<{ reply: string; changes: ProposedChange[] }>(`/api/launch/phases/${phase}/amend`, {
+        method: 'POST', body: JSON.stringify({ question, history }),
+      }),
   },
 };
+
+export type ProposedChange =
+  | { op: 'add'; title: string; due: string; owner: string }
+  | { op: 'update'; taskId: string; title?: string; due?: string; owner?: string }
+  | { op: 'delete'; taskId: string };
 
 export type { Template };

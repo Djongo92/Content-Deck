@@ -219,12 +219,26 @@ export const launchNotesTable = pgTable("launch_notes", {
 // relatedPhase links a gate to a roadmap phase so the UI can show how many
 // of that phase's tasks are done alongside the manual done checkbox, rather
 // than the gate being a bare, disconnected checkbox.
+// kind separates real launch-readiness gates ("milestone") from open
+// questions/risks tracked the same way ("question") -- same shape, shown in
+// different places in the UI.
 export const launchGatesTable = pgTable("launch_gates", {
   id: text("id").primaryKey(),
   title: text("title").notNull().default(""),
   description: text("description").notNull().default(""),
   done: boolean("done").notNull().default(false),
   relatedPhase: integer("related_phase"),
+  kind: text("kind").notNull().default("milestone"),
+});
+
+// Append-only activity feed: a human-readable line per notable change,
+// written by the frontend mutators themselves. Powers the weekly recap and
+// the full changelog without needing to diff snapshots after the fact.
+export const launchActivityTable = pgTable("launch_activity", {
+  id: text("id").primaryKey(),
+  at: text("at").notNull(),
+  summary: text("summary").notNull().default(""),
+  kind: text("kind").notNull().default("info"),
 });
 
 // Singleton: always exactly one row, id 'default'.

@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { useStore, useMutateStore } from '@/hooks/use-store';
-import { Plus, Settings } from 'lucide-react';
+import { Mic2, Plus, Settings } from 'lucide-react';
 import { ALL_PLATFORMS } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { VoiceConsistencyModal } from '@/components/voice-consistency-modal';
 
 export default function ClientsPage() {
   const { clients, deliverables } = useStore();
   const { addClient, updateClient } = useMutateStore();
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [voiceClientId, setVoiceClientId] = useState<string | null>(null);
 
   const displayedClients = clients.filter(c => activeTab === 'active' ? !c.archived : c.archived);
 
@@ -169,18 +171,26 @@ export default function ClientsPage() {
                 {/* Actions */}
                 {isEditing && (
                   <div className="pt-4 border-t border-border flex justify-between items-center">
-                    <button 
-                      onClick={() => {
-                        if (confirm(`Are you sure you want to ${client.archived ? 'unarchive' : 'archive'} this client?`)) {
-                          updateClient(client.id, { archived: !client.archived });
-                          setEditingId(null);
-                        }
-                      }}
-                      className="text-xs text-destructive hover:underline"
-                    >
-                      {client.archived ? 'Restore Client' : 'Archive Client'}
-                    </button>
-                    <button 
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to ${client.archived ? 'unarchive' : 'archive'} this client?`)) {
+                            updateClient(client.id, { archived: !client.archived });
+                            setEditingId(null);
+                          }
+                        }}
+                        className="text-xs text-destructive hover:underline"
+                      >
+                        {client.archived ? 'Restore Client' : 'Archive Client'}
+                      </button>
+                      <button
+                        onClick={() => setVoiceClientId(client.id)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+                      >
+                        <Mic2 className="w-3.5 h-3.5" /> Voice consistency
+                      </button>
+                    </div>
+                    <button
                       onClick={() => setEditingId(null)}
                       className="bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-sm font-medium"
                     >
@@ -198,6 +208,14 @@ export default function ClientsPage() {
           </div>
         )}
       </div>
+
+      {voiceClientId && (
+        <VoiceConsistencyModal
+          clientId={voiceClientId}
+          clientName={clients.find(c => c.id === voiceClientId)?.name ?? 'Client'}
+          onClose={() => setVoiceClientId(null)}
+        />
+      )}
     </div>
   );
 }

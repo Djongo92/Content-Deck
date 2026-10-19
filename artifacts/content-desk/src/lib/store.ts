@@ -187,10 +187,16 @@ export const SEED_DATA: StoreState = {
     },
   ],
   launchGates: [
-    { id: uuidv4(), title: 'Brand/name clearance', description: 'Check relevant trademarks, APR names, domains and handles before investing or publishing.', done: false, relatedPhase: 0 },
-    { id: uuidv4(), title: 'Offer validation', description: 'Confirm at least some positive willingness-to-pay evidence from real prospects.', done: false, relatedPhase: 2 },
-    { id: uuidv4(), title: 'Tax and invoicing readiness', description: 'Accountant verifies predominant activity, eligibility, likely costs, and lawful contracting route.', done: false, relatedPhase: 3 },
-    { id: uuidv4(), title: 'Public launch package', description: 'Completed site, portfolio, contact path, founder identity, and social announcement.', done: false, relatedPhase: 4 },
+    { id: uuidv4(), title: 'Brand/name clearance', description: 'Check relevant trademarks, APR names, domains and handles before investing or publishing.', done: false, relatedPhase: 0, kind: 'milestone' },
+    { id: uuidv4(), title: 'Offer validation', description: 'Confirm at least some positive willingness-to-pay evidence from real prospects.', done: false, relatedPhase: 2, kind: 'milestone' },
+    { id: uuidv4(), title: 'Tax and invoicing readiness', description: 'Accountant verifies predominant activity, eligibility, likely costs, and lawful contracting route.', done: false, relatedPhase: 3, kind: 'milestone' },
+    { id: uuidv4(), title: 'Public launch package', description: 'Completed site, portfolio, contact path, founder identity, and social announcement.', done: false, relatedPhase: 4, kind: 'milestone' },
+    { id: uuidv4(), title: 'Name & trademark clearance', description: 'Validate the working name and trademarks before public use.', done: false, relatedPhase: null, kind: 'question' },
+    { id: uuidv4(), title: 'Local pricing validation', description: 'Test pricing with local music-sector buyers.', done: false, relatedPhase: null, kind: 'question' },
+    { id: uuidv4(), title: 'Tax/entity structure', description: "Choose the Serbian legal/tax structure based on real predominant services; confirm 2027 classification.", done: false, relatedPhase: null, kind: 'question' },
+    { id: uuidv4(), title: 'Tax & bookkeeping costs', description: 'Determine actual tax/contribution and bookkeeping costs.', done: false, relatedPhase: null, kind: 'question' },
+    { id: uuidv4(), title: 'Compliant invoicing route', description: 'Establish the first compliant invoicing route before relevant new commercial engagements.', done: false, relatedPhase: null, kind: 'question' },
+    { id: uuidv4(), title: 'Health-insurance status', description: 'Verify health-insurance status for tax estimates.', done: false, relatedPhase: null, kind: 'question' },
   ],
   launchSettings: [{
     ...DEFAULT_LAUNCH_SETTINGS,
@@ -205,6 +211,7 @@ export const SEED_DATA: StoreState = {
     stack: 'WordPress · English-first · five pages',
     launchDate: '2027-04-12',
   }],
+  launchActivity: [],
 };
 
 // --- Sync machinery -----------------------------------------------------------
@@ -216,7 +223,7 @@ export const SEED_DATA: StoreState = {
 type CollectionKey = keyof StoreState;
 const SYNC_KEYS: CollectionKey[] = [
   'clients', 'briefs', 'deliverables', 'events', 'versions', 'assets', 'tasks', 'notes', 'metrics', 'templates',
-  'launchTasks', 'launchLeads', 'launchNotes', 'launchGates', 'launchSettings',
+  'launchTasks', 'launchLeads', 'launchNotes', 'launchGates', 'launchSettings', 'launchActivity',
 ];
 
 let storeState: StoreState | null = null;
@@ -302,8 +309,9 @@ function normalize(state: Partial<StoreState> | null | undefined): StoreState {
     launchTasks: (s.launchTasks ?? []).map(t => ({ ...t, notes: t.notes ?? '' })),
     launchLeads: (s.launchLeads ?? []).map(l => ({ ...l, linkedClientId: l.linkedClientId ?? null })),
     launchNotes: (s.launchNotes ?? []).map(n => ({ ...n, kind: n.kind ?? 'journal', x: n.x ?? null, y: n.y ?? null, color: n.color ?? null })),
-    launchGates: (s.launchGates ?? []).map(g => ({ ...g, relatedPhase: g.relatedPhase ?? null })),
+    launchGates: (s.launchGates ?? []).map(g => ({ ...g, relatedPhase: g.relatedPhase ?? null, kind: g.kind ?? 'milestone' })),
     launchSettings: s.launchSettings?.length ? s.launchSettings.map(ls => ({ ...DEFAULT_LAUNCH_SETTINGS, ...ls })) : [DEFAULT_LAUNCH_SETTINGS],
+    launchActivity: s.launchActivity ?? [],
   };
 }
 

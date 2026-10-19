@@ -29,8 +29,10 @@ app.use(
 );
 // No CORS middleware: the frontend talks to this API same-origin through the
 // platform proxy, so cross-origin browser access stays blocked by default.
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Raised from Express's 100kb default: data-URL image (auto-tag) and audio
+// (voice capture transcription) payloads go through this same JSON body.
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use("/api", router);
 

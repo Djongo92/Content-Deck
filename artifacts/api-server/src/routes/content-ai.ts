@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { speechToText } from "@workspace/integrations-openai-ai-server/audio";
 import { db, voiceExamplesTable } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -269,6 +270,30 @@ router.post("/content-ai/auto-tag", async (req, res) => {
   } catch (error) {
     req.log.error({ error }, "Auto-tag request failed");
     res.status(502).json({ error: "Image description is temporarily unavailable." });
+  }
+});
+
+// --- Voice capture: transcribe a browser recording into draft text ----------
+
+router.post("/content-ai/transcribe", async (req, res) => {
+  const { audio = "" } = req.body as { audio?: string };
+  if (!audio.startsWith("data:audio/")) {
+    res.status(400).json({ error: "Provide the recording as a data URL." });
+    return;
+  }
+  try {
+    const base64 = audio.split(",")[1] ?? "";
+    const buffer = Buffer.from(base64, "base64");
+    if (!buffer.length) {
+      res.status(400).json({ error: "Empty recording." });
+      return;
+    }
+    const format = audio.includes("webm") ? "webm" : audio.includes("mpeg") || audio.includes("mp3") ? "mp3" : "wav";
+    const text = await speechToText(buffer, format);
+    res.json({ text: text.trim() });
+  } catch (error) {
+    req.log.error({ error }, "Transcription request failed");
+    res.status(502).json({ error: "Could not transcribe that recording." });
   }
 });
 

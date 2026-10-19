@@ -19,6 +19,7 @@ import {
   launchNotesTable,
   launchGatesTable,
   launchSettingsTable,
+  launchActivityTable,
 } from "@workspace/db";
 import { calendarEventsTable } from "@workspace/db/schema";
 
@@ -41,6 +42,7 @@ const ENTITY_TABLES = {
   launchNotes: launchNotesTable,
   launchGates: launchGatesTable,
   launchSettings: launchSettingsTable,
+  launchActivity: launchActivityTable,
 } as const;
 
 type EntityKey = keyof typeof ENTITY_TABLES;
@@ -48,7 +50,7 @@ type EntityKey = keyof typeof ENTITY_TABLES;
 async function assembleState() {
   const [
     clients, briefs, deliverables, events, versions, assets, tasks, notes, metrics, templates, voiceExamples,
-    launchTasks, launchLeads, launchNotes, launchGates, launchSettings,
+    launchTasks, launchLeads, launchNotes, launchGates, launchSettings, launchActivity,
   ] =
     await Promise.all([
       db.select().from(clientsTable),
@@ -67,10 +69,11 @@ async function assembleState() {
       db.select().from(launchNotesTable),
       db.select().from(launchGatesTable),
       db.select().from(launchSettingsTable),
+      db.select().from(launchActivityTable),
     ]);
   return {
     clients, briefs, deliverables, events, versions, assets, tasks, notes, metrics, templates, voiceExamples,
-    launchTasks, launchLeads, launchNotes, launchGates, launchSettings,
+    launchTasks, launchLeads, launchNotes, launchGates, launchSettings, launchActivity,
   };
 }
 

@@ -1,12 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
-import { addWeeks, differenceInCalendarWeeks, format, startOfWeek } from 'date-fns';
+import { addWeeks, differenceInCalendarWeeks, format, formatDistanceToNow, startOfWeek } from 'date-fns';
 import { toast } from 'sonner';
-import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, Send, Loader2 } from 'lucide-react';
+import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, History, Send, Loader2 } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api, type ProposedChange } from '@/lib/api';
-import { LAUNCH_PHASE_LABELS, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchTask, STICKY_COLORS } from '@/lib/types';
+import { LAUNCH_PHASE_LABELS, LaunchActivity, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchSettings, LaunchTask, STICKY_COLORS } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const LEAD_STATUSES: LaunchLeadStatus[] = ['Lead', 'Contacted', 'Proposal', 'Active', 'Paused', 'Closed'];
@@ -20,11 +20,112 @@ type Tab = typeof TABS[number];
 
 type DiscussContext = { type: 'general' } | { type: 'task'; task: LaunchTask } | { type: 'gate'; gate: LaunchGate };
 
+const CONFETTI_COLORS = ['#d94e38', '#3F7169', '#C6A15B', '#6B5B95', '#9C3B4A'];
+
+function ConfettiBurst() {
+  const pieces = useMemo(() => Array.from({ length: 28 }, (_, i) => ({
+    left: Math.random() * 100,
+    delay: Math.random() * 0.25,
+    duration: 1.1 + Math.random() * 0.6,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    rotate: Math.round(Math.random() * 360),
+  })), []);
+  return (
+    <div className="fixed inset-0 z-[110] pointer-events-none overflow-hidden">
+      <style>{`
+        @keyframes launch-confetti-fall { to { transform: translateY(100vh) rotate(360deg); opacity: 0; } }
+      `}</style>
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          style={{
+            position: 'absolute', top: '-12px', left: `${p.left}%`, width: '8px', height: '14px',
+            backgroundColor: p.color, opacity: 0.9, transform: `rotate(${p.rotate}deg)`,
+            animation: `launch-confetti-fall ${p.duration}s ease-in ${p.delay}s forwards`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Watches for a gate or phase flipping to done and fires a celebratory toast + confetti burst. */
+function useCelebration(launchTasks: LaunchTask[], launchGates: LaunchGate[]) {
+  const [confettiKey, setConfettiKey] = useState(0);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevGatesDone = useRef<Record<string, boolean>>({});
+  const prevPhaseComplete = useRef<Record<number, boolean>>({});
+
+  function fire() {
+    setConfettiKey(k => k + 1);
+    setShowConfetti(true);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setShowConfetti(false), 1600);
+  }
+
+  useEffect(() => {
+    const prev = prevGatesDone.current;
+    launchGates.forEach(g => {
+      if (g.done && prev[g.id] === false) {
+        toast.success(`🎉 ${g.kind === 'question' ? 'Resolved' : 'Milestone reached'}: "${g.title}"`);
+        fire();
+      }
+    });
+    prevGatesDone.current = Object.fromEntries(launchGates.map(g => [g.id, g.done]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchGates]);
+
+  useEffect(() => {
+    const prev = prevPhaseComplete.current;
+    LAUNCH_PHASE_LABELS.forEach((label, p) => {
+      const tasks = launchTasks.filter(t => t.phase === p);
+      const complete = tasks.length > 0 && tasks.every(t => t.done);
+      if (complete && prev[p] === false) {
+        toast.success(`🎉 "${label}" phase complete!`);
+        fire();
+      }
+      prev[p] = complete;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchTasks]);
+
+  return { showConfetti, confettiKey };
+}
+
+function ChangelogPanel({ activity, onClose }: { activity: LaunchActivity[]; onClose: () => void }) {
+  const sorted = [...activity].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 100);
+  return (
+    <div className="fixed inset-0 z-[90] flex justify-end bg-background/70 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-xl" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border p-4">
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-primary" />
+            <h2 className="font-serif text-lg">Changelog</h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {sorted.length === 0 && <p className="text-sm text-muted-foreground">Nothing logged yet — this fills in as tasks get done, leads get added, and milestones get hit.</p>}
+          {sorted.map(a => (
+            <div key={a.id} className="border-t border-border/50 pt-2 first:border-t-0 first:pt-0">
+              <p className="text-sm">{a.summary}</p>
+              <p className="text-[11px] text-muted-foreground">{formatDistanceToNow(new Date(a.at), { addSuffix: true })}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LaunchPage() {
-  const { launchTasks } = useStore();
+  const { launchTasks, launchGates, launchActivity } = useStore();
   const [tab, setTab] = useState<Tab>('Overview');
   const [discussContext, setDiscussContext] = useState<DiscussContext | null>(null);
   const [amendPhase, setAmendPhase] = useState<number | null>(null);
+  const [changelogOpen, setChangelogOpen] = useState(false);
+  const { showConfetti, confettiKey } = useCelebration(launchTasks, launchGates);
 
   return (
     <div className="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full">
@@ -56,7 +157,7 @@ export default function LaunchPage() {
         ))}
       </div>
 
-      {tab === 'Overview' && <OverviewTab onOpenRoadmap={() => setTab('Roadmap')} onDiscuss={setDiscussContext} />}
+      {tab === 'Overview' && <OverviewTab onOpenRoadmap={() => setTab('Roadmap')} onDiscuss={setDiscussContext} onOpenChangelog={() => setChangelogOpen(true)} />}
       {tab === 'Roadmap' && <RoadmapTab onDiscuss={setDiscussContext} onAmendPhase={setAmendPhase} />}
       {tab === 'Clients & Finances' && <ClientsFinancesTab />}
       {tab === 'Brand & Settings' && <BrandSettingsTab />}
@@ -65,14 +166,22 @@ export default function LaunchPage() {
 
       {discussContext && <DiscussPanel key={discussContext.type === 'general' ? 'general' : discussContext.type === 'task' ? `task-${discussContext.task.id}` : `gate-${discussContext.gate.id}`} context={discussContext} onClose={() => setDiscussContext(null)} />}
       {amendPhase != null && <PhaseAmendPanel key={`amend-${amendPhase}`} phase={amendPhase} launchTasks={launchTasks} onClose={() => setAmendPhase(null)} />}
+      {changelogOpen && <ChangelogPanel activity={launchActivity} onClose={() => setChangelogOpen(false)} />}
+      {showConfetti && <ConfettiBurst key={confettiKey} />}
     </div>
   );
 }
 
 // --- Overview ----------------------------------------------------------------
 
-function OverviewTab({ onOpenRoadmap, onDiscuss }: { onOpenRoadmap: () => void; onDiscuss: (ctx: DiscussContext) => void }) {
-  const { launchTasks, launchLeads, launchSettings } = useStore();
+function OverviewTab({
+  onOpenRoadmap, onDiscuss, onOpenChangelog,
+}: {
+  onOpenRoadmap: () => void;
+  onDiscuss: (ctx: DiscussContext) => void;
+  onOpenChangelog: () => void;
+}) {
+  const { launchTasks, launchLeads, launchSettings, launchActivity } = useStore();
   const { toggleLaunchTask } = useMutateStore();
   const settings = launchSettings[0];
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -83,9 +192,24 @@ function OverviewTab({ onOpenRoadmap, onDiscuss }: { onOpenRoadmap: () => void; 
   const revenue = launchLeads.filter(l => l.status === 'Active').reduce((sum, l) => sum + (l.fee || 0), 0);
   const nextTasks = launchTasks.filter(t => !t.done).sort((a, b) => a.due.localeCompare(b.due)).slice(0, 6);
   const launchDate = settings?.launchDate ? new Date(settings.launchDate + 'T00:00:00') : null;
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const thisWeek = launchActivity.filter(a => a.at >= weekAgo).sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <div className="space-y-6">
+      {thisWeek.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-serif">This week</h2>
+            <button onClick={onOpenChangelog} className="text-xs text-primary hover:underline">View full changelog →</button>
+          </div>
+          <ul className="text-sm text-muted-foreground space-y-1">
+            {thisWeek.slice(0, 6).map(a => <li key={a.id}>• {a.summary}</li>)}
+          </ul>
+          {thisWeek.length > 6 && <p className="text-xs text-muted-foreground mt-2">+ {thisWeek.length - 6} more this week</p>}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Metric label="Public launch" value={launchDate ? launchDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Not set'} sub={launchDate ? launchDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Set one in Brand & Settings'} />
         <Metric label="Current recurring revenue" value={fmtEUR(revenue)} sub="From the client / lead tracker" />
@@ -433,7 +557,7 @@ function describeChange(change: ProposedChange, launchTasks: LaunchTask[]): stri
 }
 
 function PhaseAmendPanel({ phase, launchTasks, onClose }: { phase: number; launchTasks: LaunchTask[]; onClose: () => void }) {
-  const { addLaunchTask, updateLaunchTask, deleteLaunchTask } = useMutateStore();
+  const { addLaunchTask, updateLaunchTask, deleteLaunchTask, logActivity } = useMutateStore();
   const [turns, setTurns] = useState<AmendTurn[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -491,6 +615,7 @@ function PhaseAmendPanel({ phase, launchTasks, onClose }: { phase: number; launc
       }
     });
     toast.success(appliedCount ? `Applied ${appliedCount} change${appliedCount === 1 ? '' : 's'} to the board` : 'Nothing selected to apply');
+    if (appliedCount) logActivity(`Applied ${appliedCount} AI-suggested change${appliedCount === 1 ? '' : 's'} to "${label}" via brainstorm`, 'ai_amend');
     setTurns(ts => ts.map((t, i) => i === turnIndex ? { ...t, applied: true } : t));
   }
 
@@ -685,7 +810,7 @@ function RoadmapTab({ onDiscuss, onAmendPhase }: { onDiscuss: (ctx: DiscussConte
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-xl font-serif mb-3">Launch decision gates</h2>
         <div className="space-y-0">
-          {launchGates.map(g => {
+          {launchGates.filter(g => g.kind === 'milestone').map(g => {
             const phaseTasks = g.relatedPhase != null ? launchTasks.filter(t => t.phase === g.relatedPhase) : [];
             const phaseDone = phaseTasks.filter(t => t.done).length;
             const ready = g.relatedPhase != null && phaseTasks.length > 0 && phaseDone === phaseTasks.length;
@@ -792,6 +917,59 @@ function RevenueMilestoneChart({ revenue }: { revenue: number }) {
         </ResponsiveContainer>
       </div>
       <p className="text-xs text-muted-foreground mt-1">Dashed line: the memo's hypothesis targets. Teal dot: today's actual, from the tracker below.</p>
+    </div>
+  );
+}
+
+function PricingSandbox({
+  revenue, hours, delivery, settings,
+}: {
+  revenue: number;
+  hours: number;
+  delivery: number;
+  settings: LaunchSettings | undefined;
+}) {
+  const [fee, setFee] = useState(600);
+  const [hrs, setHrs] = useState(15);
+  const hypoRevenue = revenue + fee;
+  const hypoHours = hours + hrs;
+  const hypoRemaining = delivery - hypoHours;
+  const currentTakeHome = revenue - (settings?.monthlyCosts || 0) - (settings?.monthlyReserve || 0);
+  const hypoTakeHome = hypoRevenue - (settings?.monthlyCosts || 0) - (settings?.monthlyReserve || 0);
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <h2 className="text-lg font-serif mb-1">What if I add a client?</h2>
+      <p className="text-xs text-muted-foreground mb-4">Drag before you say yes to anything — see the effect on capacity and take-home up front.</p>
+      <div className="grid sm:grid-cols-2 gap-4 mb-4">
+        <div>
+          <div className="flex justify-between text-xs text-muted-foreground mb-1"><span>Monthly fee</span><span className="font-medium text-foreground">{fmtEUR(fee)}</span></div>
+          <input type="range" min={0} max={2000} step={50} value={fee} onChange={e => setFee(Number(e.target.value))} className="w-full accent-primary" />
+        </div>
+        <div>
+          <div className="flex justify-between text-xs text-muted-foreground mb-1"><span>Hours/month</span><span className="font-medium text-foreground">{hrs}h</span></div>
+          <input type="range" min={0} max={40} step={1} value={hrs} onChange={e => setHrs(Number(e.target.value))} className="w-full accent-primary" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+        <div className="rounded-md bg-secondary/50 p-3">
+          <p className="text-[11px] text-muted-foreground mb-0.5">Revenue</p>
+          <p className="font-medium">{fmtEUR(revenue)} → <span className="text-primary">{fmtEUR(hypoRevenue)}</span></p>
+        </div>
+        <div className="rounded-md bg-secondary/50 p-3">
+          <p className="text-[11px] text-muted-foreground mb-0.5">Delivery hours used</p>
+          <p className="font-medium">{Math.round(hours)}h → <span className="text-primary">{Math.round(hypoHours)}h</span></p>
+        </div>
+        <div className="rounded-md bg-secondary/50 p-3">
+          <p className="text-[11px] text-muted-foreground mb-0.5">Capacity remaining</p>
+          <p className={cn('font-medium', hypoRemaining < 0 ? 'text-destructive' : 'text-emerald-600')}>{Math.round(hypoRemaining)}h</p>
+        </div>
+        <div className="rounded-md bg-secondary/50 p-3">
+          <p className="text-[11px] text-muted-foreground mb-0.5">Take-home</p>
+          <p className="font-medium">{fmtEUR(currentTakeHome)} → <span className="text-primary">{fmtEUR(hypoTakeHome)}</span></p>
+        </div>
+      </div>
+      {hypoRemaining < 0 && <p className="text-xs text-destructive mt-3">This would put you over capacity — something else would need to move or shrink first.</p>}
     </div>
   );
 }
@@ -922,6 +1100,8 @@ function ClientsFinancesTab() {
           <p className="text-xs text-muted-foreground mt-1">Deliberately editable placeholders, not Serbian tax quotations. Confirm liability with an accountant before treating the take-home number as reliable.</p>
         </div>
       </div>
+
+      <PricingSandbox revenue={revenue} hours={hours} delivery={delivery} settings={settings} />
 
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-lg font-serif mb-3">Proposed offers (reference)</h2>
@@ -1147,12 +1327,16 @@ function IdeaBoard() {
 }
 
 function NotesTab() {
-  const { launchNotes } = useStore();
-  const { addLaunchNote, deleteLaunchNote } = useMutateStore();
+  const { launchNotes, launchGates } = useStore();
+  const { addLaunchNote, deleteLaunchNote, addLaunchGate, updateLaunchGate, deleteLaunchGate } = useMutateStore();
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
+  const [marketText, setMarketText] = useState('');
+  const [newQuestion, setNewQuestion] = useState('');
   const journalNotes = launchNotes.filter(n => n.kind === 'journal');
+  const marketNotes = launchNotes.filter(n => n.kind === 'market');
+  const openQuestions = launchGates.filter(g => g.kind === 'question');
 
   function save() {
     if (!title.trim() || !text.trim()) return;
@@ -1163,6 +1347,18 @@ function NotesTab() {
 
   function handleDelete(id: string) {
     if (confirm('Delete this note?')) deleteLaunchNote(id);
+  }
+
+  function saveMarketNote() {
+    if (!marketText.trim()) return;
+    addLaunchNote({ title: '', text: marketText, kind: 'market' });
+    setMarketText('');
+  }
+
+  function addQuestion() {
+    if (!newQuestion.trim()) return;
+    addLaunchGate({ title: newQuestion.trim(), description: '', kind: 'question' });
+    setNewQuestion('');
   }
 
   return (
@@ -1197,16 +1393,58 @@ function NotesTab() {
         </div>
       </div>
 
-      <div className="md:col-span-2 bg-card border border-border rounded-xl p-5">
-        <h2 className="text-lg font-serif mb-3">Important unresolved matters</h2>
-        <ul className="text-sm text-muted-foreground space-y-1.5 list-disc pl-4">
-          <li>Validate the working name and trademarks before public use.</li>
-          <li>Test pricing with local music-sector buyers.</li>
-          <li>Choose the Serbian legal/tax structure based on real predominant services; confirm 2027 classification.</li>
-          <li>Determine actual tax/contribution and bookkeeping costs.</li>
-          <li>Establish the first compliant invoicing route before relevant new commercial engagements.</li>
-          <li>Verify health-insurance status for tax estimates.</li>
-        </ul>
+      <div className="bg-card border border-border rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-serif">Open questions</h2>
+          <span className="text-xs text-muted-foreground">{openQuestions.filter(q => q.done).length}/{openQuestions.length} resolved</span>
+        </div>
+        <div className="flex gap-2 mb-3">
+          <input
+            value={newQuestion}
+            onChange={e => setNewQuestion(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addQuestion(); }}
+            placeholder="Add an open question or risk…"
+            className="flex-1 bg-secondary border border-border rounded-md p-2 text-sm"
+          />
+          <button onClick={addQuestion} disabled={!newQuestion.trim()} className="text-xs font-medium bg-primary text-primary-foreground px-3 py-2 rounded-md disabled:opacity-50">Add</button>
+        </div>
+        <div className="space-y-0">
+          {openQuestions.map(q => (
+            <div key={q.id} className="flex items-start gap-2 border-t border-border/50 py-2 first:border-t-0">
+              <input type="checkbox" checked={q.done} onChange={e => updateLaunchGate(q.id, { done: e.target.checked })} className="accent-primary w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span className={cn('flex-1 text-sm', q.done && 'line-through text-muted-foreground')}>{q.title}{q.description && <span className="block text-xs text-muted-foreground mt-0.5">{q.description}</span>}</span>
+              <button onClick={() => deleteLaunchGate(q.id)} className="text-xs text-destructive hover:underline shrink-0">Remove</button>
+            </div>
+          ))}
+          {openQuestions.length === 0 && <p className="text-sm text-muted-foreground py-2">Nothing open right now.</p>}
+        </div>
+      </div>
+
+      <div className="bg-card border border-border rounded-xl p-5">
+        <h2 className="text-lg font-serif mb-1">Market watch</h2>
+        <p className="text-xs text-muted-foreground mb-3">What comparable studios and competitors are doing — feeds the idea board.</p>
+        <div className="flex gap-2 mb-3">
+          <input
+            value={marketText}
+            onChange={e => setMarketText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveMarketNote(); }}
+            placeholder="e.g. Studio X launched a TikTok behind-the-scenes series…"
+            className="flex-1 bg-secondary border border-border rounded-md p-2 text-sm"
+          />
+          <button onClick={saveMarketNote} disabled={!marketText.trim()} className="text-xs font-medium bg-primary text-primary-foreground px-3 py-2 rounded-md disabled:opacity-50">Log it</button>
+        </div>
+        <div className="space-y-0 max-h-[220px] overflow-y-auto">
+          {marketNotes.map(n => (
+            <div key={n.id} className="flex items-start justify-between gap-2 border-t border-border/50 py-2 first:border-t-0">
+              <div>
+                <p className="text-sm">{n.text}</p>
+                <p className="text-[11px] text-muted-foreground">{n.date}</p>
+              </div>
+              <button onClick={() => deleteLaunchNote(n.id)} className="text-xs text-destructive hover:underline shrink-0">Remove</button>
+            </div>
+          ))}
+          {marketNotes.length === 0 && <p className="text-sm text-muted-foreground py-2">Nothing logged yet.</p>}
+        </div>
       </div>
     </div>
   );

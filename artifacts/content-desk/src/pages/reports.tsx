@@ -1,10 +1,11 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { addDays, format, isAfter, isBefore, isSameMonth, startOfDay, subDays, subMonths } from 'date-fns';
-import { AlertTriangle, BarChart3, Clock3, FileCheck2, Import, Layout, ShieldAlert, Sparkles, Target, TrendingUp, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Clock3, FileCheck2, FileText, Import, Layout, ShieldAlert, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api } from '@/lib/api';
+import { ClientReportModal } from '@/components/client-report-modal';
 import type { Deliverable, PerformanceMetrics } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +20,7 @@ export default function ReportsPage() {
   const { addBrief } = useMutateStore();
   const [, navigate] = useLocation();
   const [importOpen, setImportOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importing, setImporting] = useState(false);
   const [unmatched, setUnmatched] = useState<string[]>([]);
@@ -178,7 +180,10 @@ export default function ReportsPage() {
           <h1 className="text-3xl font-serif text-foreground">Performance & Reports</h1>
           <p className="mt-1 text-sm text-muted-foreground">Decisions across every client and platform</p>
         </div>
-        <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110"><Import className="h-4 w-4" /> Import metrics</button>
+        <div className="flex gap-3">
+          <button onClick={() => setReportOpen(true)} className="flex items-center gap-2 rounded-md border border-border bg-secondary px-4 py-2 text-sm font-medium hover:border-primary"><FileText className="h-4 w-4" /> Client report</button>
+          <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110"><Import className="h-4 w-4" /> Import metrics</button>
+        </div>
       </header>
 
       <section className="mb-8 rounded-xl border border-border bg-card p-6">
@@ -255,6 +260,8 @@ export default function ReportsPage() {
           {!portfolio.length && <p className="p-6 text-sm text-muted-foreground">No published work yet.</p>}
         </div>
       </section>
+
+      {reportOpen && <ClientReportModal onClose={() => setReportOpen(false)} />}
 
       {importOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">

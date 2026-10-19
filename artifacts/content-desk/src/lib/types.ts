@@ -191,7 +191,7 @@ export type LaunchLead = {
   linkedClientId: string | null;
 };
 
-export type LaunchNoteKind = 'journal' | 'idea';
+export type LaunchNoteKind = 'journal' | 'idea' | 'market';
 
 export type LaunchNote = {
   id: string;
@@ -206,12 +206,22 @@ export type LaunchNote = {
 
 export const STICKY_COLORS = ['#f7d774', '#8bd3c7', '#f5a6a6', '#a8c7f0', '#c9a8e8'] as const;
 
+export type LaunchGateKind = 'milestone' | 'question';
+
 export type LaunchGate = {
   id: string;
   title: string;
   description: string;
   done: boolean;
   relatedPhase: number | null;
+  kind: LaunchGateKind;
+};
+
+export type LaunchActivity = {
+  id: string;
+  at: string;
+  summary: string;
+  kind: string;
 };
 
 export type LaunchSettings = {
@@ -262,6 +272,7 @@ export type StoreState = {
   launchNotes: LaunchNote[];
   launchGates: LaunchGate[];
   launchSettings: LaunchSettings[];
+  launchActivity: LaunchActivity[];
 };
 
 export type SaveStatus = 'saved' | 'saving' | 'offline' | 'loading';

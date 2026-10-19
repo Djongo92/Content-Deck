@@ -64,6 +64,9 @@ export const api = {
   autoTag: (image: string) =>
     req<{ altText: string; tags: string[] }>('/api/content-ai/auto-tag', { method: 'POST', body: JSON.stringify({ image }) }),
 
+  transcribe: (audio: string) =>
+    req<{ text: string }>('/api/content-ai/transcribe', { method: 'POST', body: JSON.stringify({ audio }) }),
+
   requestUploadUrl: (meta: { name: string; size: number; contentType: string }) =>
     req<{ uploadURL: string; objectPath: string }>('/api/storage/uploads/request-url', {
       method: 'POST', body: JSON.stringify(meta),

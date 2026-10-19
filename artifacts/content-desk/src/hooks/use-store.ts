@@ -441,6 +441,17 @@ export function useMutateStore() {
 
   // --- Launch planner (Algo-Rhythm) -------------------------------------------
 
+  /** Append-only activity feed entry. Powers the weekly recap and changelog. */
+  const logActivity = useCallback((summary: string, kind = 'info') => {
+    const s = store.get();
+    store.update('launchActivity', [...s.launchActivity, {
+      id: uuidv4(),
+      at: new Date().toISOString(),
+      summary,
+      kind,
+    }]);
+  }, []);
+
   const addLaunchTask = useCallback((input: { title?: string; due?: string; phase?: number; owner?: string; notes?: string } = {}) => {
     const s = store.get();
     store.update('launchTasks', [...s.launchTasks, {
@@ -462,8 +473,10 @@ export function useMutateStore() {
 
   const toggleLaunchTask = useCallback((id: string, done: boolean) => {
     const s = store.get();
+    const task = s.launchTasks.find(t => t.id === id);
     store.update('launchTasks', s.launchTasks.map(t => t.id === id ? { ...t, done } : t));
-  }, []);
+    if (task && done && !task.done) logActivity(`Completed "${task.title}"`, 'task_done');
+  }, [logActivity]);
 
   const deleteLaunchTask = useCallback((id: string) => {
     const s = store.get();
@@ -482,8 +495,9 @@ export function useMutateStore() {
       linkedClientId: null,
     };
     store.update('launchLeads', [...s.launchLeads, lead]);
+    logActivity(`Added lead "${lead.name}"`, 'lead_added');
     return lead.id;
-  }, []);
+  }, [logActivity]);
 
   const updateLaunchLead = useCallback((id: string, patch: Partial<LaunchLead>) => {
     const s = store.get();
@@ -501,30 +515,35 @@ export function useMutateStore() {
   const convertLaunchLead = useCallback(async (id: string) => {
     const { clientId } = await api.launch.convertLead(id);
     const s = store.get();
+    const lead = s.launchLeads.find(l => l.id === id);
     store.update('launchLeads', s.launchLeads.map(l => l.id === id ? { ...l, linkedClientId: clientId } : l));
     const server = await api.getState();
     const client = server.clients.find(c => c.id === clientId);
     if (client && !store.get().clients.some(c => c.id === clientId)) {
       store.update('clients', [...store.get().clients, client]);
     }
+    logActivity(`Converted "${lead?.name ?? 'a lead'}" to a Content Desk client`, 'lead_converted');
     return clientId;
-  }, []);
+  }, [logActivity]);
 
-  const addLaunchNote = useCallback((input: { title: string; text: string; date?: string }) => {
+  const addLaunchNote = useCallback((input: { title: string; text: string; date?: string; kind?: 'journal' | 'market' }) => {
     const s = store.get();
+    const kind = input.kind ?? 'journal';
     const note = {
       id: uuidv4(),
       date: input.date || new Date().toISOString().slice(0, 10),
       title: input.title.trim(),
       text: input.text.trim(),
-      kind: 'journal' as const,
+      kind,
       x: null,
       y: null,
       color: null,
     };
     store.update('launchNotes', [note, ...s.launchNotes]);
+    if (kind === 'journal') logActivity(`Added a decision note: "${note.title}"`, 'note_added');
+    else logActivity(`Logged a market-watch note: "${note.title || note.text.slice(0, 60)}"`, 'market_note');
     return note.id;
-  }, []);
+  }, [logActivity]);
 
   const deleteLaunchNote = useCallback((id: string) => {
     const s = store.get();
@@ -558,9 +577,10 @@ export function useMutateStore() {
     const s = store.get();
     const note = s.launchNotes.find(n => n.id === noteId);
     if (!note) return;
+    const title = note.text.trim() || 'New task';
     store.update('launchTasks', [...s.launchTasks, {
       id: uuidv4(),
-      title: note.text.trim() || 'New task',
+      title,
       due: new Date().toISOString().slice(0, 10),
       phase,
       owner: 'Tisa',
@@ -569,23 +589,29 @@ export function useMutateStore() {
       notes: '',
     }]);
     store.update('launchNotes', store.get().launchNotes.filter(n => n.id !== noteId));
-  }, []);
+    logActivity(`Promoted an idea to a task: "${title}"`, 'idea_promoted');
+  }, [logActivity]);
 
   const addLaunchGate = useCallback((input: Partial<LaunchGate> = {}) => {
     const s = store.get();
     store.update('launchGates', [...s.launchGates, {
       id: uuidv4(),
-      title: input.title?.trim() || 'New decision gate',
+      title: input.title?.trim() || (input.kind === 'question' ? 'New open question' : 'New decision gate'),
       description: input.description || '',
       done: false,
       relatedPhase: input.relatedPhase ?? null,
+      kind: input.kind ?? 'milestone',
     }]);
   }, []);
 
   const updateLaunchGate = useCallback((id: string, patch: Partial<LaunchGate>) => {
     const s = store.get();
+    const gate = s.launchGates.find(g => g.id === id);
     store.update('launchGates', s.launchGates.map(g => g.id === id ? { ...g, ...patch } : g));
-  }, []);
+    if (gate && patch.done && !gate.done) {
+      logActivity(gate.kind === 'question' ? `Resolved: "${gate.title}"` : `Reached milestone: "${gate.title}"`, 'gate_done');
+    }
+  }, [logActivity]);
 
   const deleteLaunchGate = useCallback((id: string) => {
     const s = store.get();
@@ -643,6 +669,7 @@ export function useMutateStore() {
     updateLaunchGate,
     deleteLaunchGate,
     updateLaunchSettings,
+    logActivity,
   };
 }
 

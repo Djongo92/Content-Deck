@@ -516,6 +516,10 @@ export function useMutateStore() {
       date: input.date || new Date().toISOString().slice(0, 10),
       title: input.title.trim(),
       text: input.text.trim(),
+      kind: 'journal' as const,
+      x: null,
+      y: null,
+      color: null,
     };
     store.update('launchNotes', [note, ...s.launchNotes]);
     return note.id;
@@ -524,6 +528,45 @@ export function useMutateStore() {
   const deleteLaunchNote = useCallback((id: string) => {
     const s = store.get();
     store.update('launchNotes', s.launchNotes.filter(n => n.id !== id));
+  }, []);
+
+  const updateLaunchNote = useCallback((id: string, patch: Partial<StoreState['launchNotes'][0]>) => {
+    const s = store.get();
+    store.update('launchNotes', s.launchNotes.map(n => n.id === id ? { ...n, ...patch } : n));
+  }, []);
+
+  /** A freeform brainstorming sticky — same table as the dated journal, kind:'idea'. */
+  const addIdeaNote = useCallback((input: { text?: string; x: number; y: number; color: string }) => {
+    const s = store.get();
+    const note = {
+      id: uuidv4(),
+      date: new Date().toISOString().slice(0, 10),
+      title: '',
+      text: input.text ?? '',
+      kind: 'idea' as const,
+      x: input.x,
+      y: input.y,
+      color: input.color,
+    };
+    store.update('launchNotes', [...s.launchNotes, note]);
+    return note.id;
+  }, []);
+
+  /** Turns an idea sticky into a real roadmap task, then removes the sticky. */
+  const promoteIdeaToTask = useCallback((noteId: string, phase = 0) => {
+    const s = store.get();
+    const note = s.launchNotes.find(n => n.id === noteId);
+    if (!note) return;
+    store.update('launchTasks', [...s.launchTasks, {
+      id: uuidv4(),
+      title: note.text.trim() || 'New task',
+      due: new Date().toISOString().slice(0, 10),
+      phase,
+      owner: 'Tisa',
+      done: false,
+      createdAt: new Date().toISOString(),
+    }]);
+    store.update('launchNotes', store.get().launchNotes.filter(n => n.id !== noteId));
   }, []);
 
   const addLaunchGate = useCallback((input: Partial<LaunchGate> = {}) => {
@@ -591,6 +634,9 @@ export function useMutateStore() {
     convertLaunchLead,
     addLaunchNote,
     deleteLaunchNote,
+    updateLaunchNote,
+    addIdeaNote,
+    promoteIdeaToTask,
     addLaunchGate,
     updateLaunchGate,
     deleteLaunchGate,

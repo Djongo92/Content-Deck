@@ -179,6 +179,10 @@ export const SEED_DATA: StoreState = {
       date: new Date().toISOString().slice(0, 10),
       title: 'Business baseline agreed',
       text: 'Local-first, internationally credible. Solo studio; mixed retainers and projects; six-month public-launch horizon. Founder owns sales. Name remains provisional.',
+      kind: 'journal',
+      x: null,
+      y: null,
+      color: null,
     },
   ],
   launchGates: [
@@ -296,7 +300,7 @@ function normalize(state: Partial<StoreState> | null | undefined): StoreState {
     templates: s.templates ?? [],
     launchTasks: s.launchTasks ?? [],
     launchLeads: (s.launchLeads ?? []).map(l => ({ ...l, linkedClientId: l.linkedClientId ?? null })),
-    launchNotes: s.launchNotes ?? [],
+    launchNotes: (s.launchNotes ?? []).map(n => ({ ...n, kind: n.kind ?? 'journal', x: n.x ?? null, y: n.y ?? null, color: n.color ?? null })),
     launchGates: (s.launchGates ?? []).map(g => ({ ...g, relatedPhase: g.relatedPhase ?? null })),
     launchSettings: s.launchSettings?.length ? s.launchSettings.map(ls => ({ ...DEFAULT_LAUNCH_SETTINGS, ...ls })) : [DEFAULT_LAUNCH_SETTINGS],
   };

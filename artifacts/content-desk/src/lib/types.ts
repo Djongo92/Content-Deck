@@ -190,12 +190,20 @@ export type LaunchLead = {
   linkedClientId: string | null;
 };
 
+export type LaunchNoteKind = 'journal' | 'idea';
+
 export type LaunchNote = {
   id: string;
   date: string;
   title: string;
   text: string;
+  kind: LaunchNoteKind;
+  x: number | null;
+  y: number | null;
+  color: string | null;
 };
+
+export const STICKY_COLORS = ['#f7d774', '#8bd3c7', '#f5a6a6', '#a8c7f0', '#c9a8e8'] as const;
 
 export type LaunchGate = {
   id: string;

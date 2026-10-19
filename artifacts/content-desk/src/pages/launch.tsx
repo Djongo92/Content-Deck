@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'wouter';
+import { addWeeks, differenceInCalendarWeeks, format, startOfWeek } from 'date-fns';
 import { toast } from 'sonner';
 import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, Send, Loader2 } from 'lucide-react';
+import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api } from '@/lib/api';
-import { LAUNCH_PHASE_LABELS, LaunchLeadStatus, LaunchTask } from '@/lib/types';
+import { LAUNCH_PHASE_LABELS, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchTask, STICKY_COLORS } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const LEAD_STATUSES: LaunchLeadStatus[] = ['Lead', 'Contacted', 'Proposal', 'Active', 'Paused', 'Closed'];
@@ -186,6 +188,50 @@ function PhaseStepper({ launchTasks }: { launchTasks: LaunchTask[] }) {
   );
 }
 
+function WeeklyLoadHeatmap({ launchTasks }: { launchTasks: LaunchTask[] }) {
+  const dues = launchTasks
+    .map(t => (t.due ? new Date(t.due + 'T00:00:00') : null))
+    .filter((d): d is Date => !!d && !isNaN(d.getTime()));
+  if (!dues.length) return null;
+
+  const minDate = startOfWeek(new Date(Math.min(...dues.map(d => d.getTime()))), { weekStartsOn: 1 });
+  const maxDate = new Date(Math.max(...dues.map(d => d.getTime())));
+  const weekCount = Math.max(1, differenceInCalendarWeeks(maxDate, minDate, { weekStartsOn: 1 }) + 1);
+  const weeks = Array.from({ length: weekCount }, (_, i) => {
+    const start = addWeeks(minDate, i);
+    const end = addWeeks(start, 1);
+    const count = dues.filter(d => d >= start && d < end).length;
+    return { start, count };
+  });
+  const maxCount = Math.max(1, ...weeks.map(w => w.count));
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <h2 className="text-lg font-serif mb-1">Load across the roadmap</h2>
+      <p className="text-xs text-muted-foreground mb-3">Tasks due per week, start to launch — spot an overloaded week before it arrives.</p>
+      <div className="flex gap-1 overflow-x-auto pb-1">
+        {weeks.map((w, i) => {
+          const intensity = w.count / maxCount;
+          return (
+            <div
+              key={i}
+              title={`Week of ${format(w.start, 'MMM d')} — ${w.count} task${w.count === 1 ? '' : 's'} due`}
+              className="shrink-0 w-6 h-10 rounded-sm flex items-end justify-center bg-secondary"
+              style={w.count ? { backgroundColor: `rgba(217,78,56,${0.15 + intensity * 0.65})` } : undefined}
+            >
+              {w.count > 0 && <span className={cn('text-[10px] font-semibold pb-0.5', intensity > 0.5 ? 'text-white' : 'text-foreground')}>{w.count}</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-between text-[11px] text-muted-foreground mt-1.5">
+        <span>{format(minDate, 'MMM yyyy')}</span>
+        <span>{format(maxDate, 'MMM yyyy')}</span>
+      </div>
+    </div>
+  );
+}
+
 function RoadmapTab() {
   const { launchTasks, launchGates } = useStore();
   const { addLaunchTask, updateLaunchTask, toggleLaunchTask, deleteLaunchTask, updateLaunchGate } = useMutateStore();
@@ -208,6 +254,8 @@ function RoadmapTab() {
         <div className="h-2 rounded-full bg-secondary overflow-hidden mb-4"><div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} /></div>
         <PhaseStepper launchTasks={launchTasks} />
       </div>
+
+      <WeeklyLoadHeatmap launchTasks={launchTasks} />
 
       <div className="bg-card border border-border rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
@@ -306,6 +354,72 @@ function RoadmapTab() {
 
 // --- Clients & Finances --------------------------------------------------------
 
+const FUNNEL_STAGES: LaunchLeadStatus[] = ['Lead', 'Contacted', 'Proposal', 'Active'];
+
+function LeadFunnel({ launchLeads }: { launchLeads: LaunchLead[] }) {
+  const counts = FUNNEL_STAGES.map(stage => launchLeads.filter(l => l.status === stage).length);
+  const max = Math.max(1, ...counts);
+  const sidelined = launchLeads.filter(l => l.status === 'Paused' || l.status === 'Closed').length;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <h2 className="text-lg font-serif mb-1">Pipeline funnel</h2>
+      <p className="text-xs text-muted-foreground mb-4">Where prospects are getting stuck, at a glance.</p>
+      <div className="space-y-2.5">
+        {FUNNEL_STAGES.map((stage, i) => {
+          const pct = Math.max(16, (counts[i] / max) * 100);
+          return (
+            <div key={stage} className="flex items-center gap-3">
+              <span className="w-20 shrink-0 text-xs text-muted-foreground text-right">{stage}</span>
+              <div className="flex-1 flex justify-center">
+                <div
+                  className="h-8 rounded-md flex items-center justify-center text-xs font-semibold text-white transition-all"
+                  style={{ width: `${pct}%`, backgroundColor: '#d94e38', opacity: counts[i] ? 0.5 + 0.5 * (counts[i] / max) : 0.25 }}
+                >
+                  {counts[i]}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {sidelined > 0 && <p className="text-xs text-muted-foreground mt-3">{sidelined} paused/closed, not shown above.</p>}
+    </div>
+  );
+}
+
+const REVENUE_MILESTONES = [
+  { label: 'Feb 2027', low: 900, high: 1300 },
+  { label: 'Apr 2027', low: 1200, high: 1800 },
+  { label: 'Sep 2027', low: 2500, high: 3000 },
+];
+
+function RevenueMilestoneChart({ revenue }: { revenue: number }) {
+  const data = [
+    { label: 'Today', target: null as number | null },
+    ...REVENUE_MILESTONES.map(m => ({ label: m.label, target: (m.low + m.high) / 2 })),
+  ];
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <h2 className="text-lg font-serif mb-1">Revenue vs. milestone hypotheses</h2>
+      <p className="text-xs text-muted-foreground mb-3">Today's actual recurring revenue against the memo's planning targets — a check-in, not a forecast.</p>
+      <div className="h-[220px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 10, right: 10, left: -16, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#88888833" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#888" />
+            <YAxis tick={{ fontSize: 11 }} stroke="#888" tickFormatter={v => `€${v}`} width={55} />
+            <Tooltip formatter={(v: number) => [`€${Math.round(v)}`, 'Target']} labelFormatter={label => label} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+            <Line type="monotone" dataKey="target" name="Target" stroke="#d94e38" strokeDasharray="4 3" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            <ReferenceDot x="Today" y={revenue} r={5} fill="#3F7169" stroke="white" strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="text-xs text-muted-foreground mt-1">Dashed line: the memo's hypothesis targets. Teal dot: today's actual, from the tracker below.</p>
+    </div>
+  );
+}
+
 function ClientsFinancesTab() {
   const { launchLeads, launchSettings } = useStore();
   const { addLaunchLead, updateLaunchLead, deleteLaunchLead, convertLaunchLead, updateLaunchSettings } = useMutateStore();
@@ -345,6 +459,11 @@ function ClientsFinancesTab() {
         <Metric label="Client delivery hours" value={`${Math.round(hours)}h`} />
         <Metric label="Gross €/delivery hour" value={hourly ? `${fmtEUR(hourly)}/hr` : '—'} />
         <Metric label="Estimated owner take-home" value={fmtEUR(takeHome)} sub="Placeholder cost assumptions" />
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <LeadFunnel launchLeads={launchLeads} />
+        <RevenueMilestoneChart revenue={revenue} />
       </div>
 
       <div className="bg-card border border-border rounded-xl p-5">
@@ -556,12 +675,108 @@ function BrandSettingsTab() {
 
 // --- Notes ------------------------------------------------------------------------
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+const STICKY_W = 160;
+const STICKY_H = 110;
+
+function IdeaBoard() {
+  const { launchNotes } = useStore();
+  const { addIdeaNote, updateLaunchNote, deleteLaunchNote, promoteIdeaToTask } = useMutateStore();
+  const boardRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const ideas = launchNotes.filter((n): n is LaunchNote & { x: number; y: number } => n.kind === 'idea');
+
+  function addSticky() {
+    const board = boardRef.current;
+    const w = board?.clientWidth ?? 600;
+    const h = board?.clientHeight ?? 380;
+    addIdeaNote({
+      x: clamp(Math.random() * w, 0, Math.max(0, w - STICKY_W)),
+      y: clamp(Math.random() * h, 0, Math.max(0, h - STICKY_H)),
+      color: STICKY_COLORS[ideas.length % STICKY_COLORS.length],
+    });
+  }
+
+  function onStickyPointerDown(e: React.PointerEvent<HTMLDivElement>, note: LaunchNote & { x: number; y: number }) {
+    const board = boardRef.current;
+    if (!board) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const boardRect = board.getBoundingClientRect();
+    dragRef.current = { id: note.id, offsetX: e.clientX - (boardRect.left + note.x), offsetY: e.clientY - (boardRect.top + note.y) };
+  }
+
+  function onStickyPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    const board = boardRef.current;
+    if (!drag || !board) return;
+    const boardRect = board.getBoundingClientRect();
+    updateLaunchNote(drag.id, {
+      x: clamp(e.clientX - boardRect.left - drag.offsetX, 0, Math.max(0, boardRect.width - STICKY_W)),
+      y: clamp(e.clientY - boardRect.top - drag.offsetY, 0, Math.max(0, boardRect.height - STICKY_H)),
+    });
+  }
+
+  function onStickyPointerUp() {
+    dragRef.current = null;
+  }
+
+  function handlePromote(id: string) {
+    promoteIdeaToTask(id, 0);
+    toast.success('Added to the roadmap as a task');
+  }
+
+  return (
+    <div className="md:col-span-2 bg-card border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-serif">Idea board</h2>
+          <p className="text-xs text-muted-foreground">Drag stickies around to group loose thoughts before they're decisions. "→ Task" turns one into a real roadmap item.</p>
+        </div>
+        <button onClick={addSticky} className="text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md shrink-0">+ New idea</button>
+      </div>
+      <div ref={boardRef} className="relative w-full h-[380px] rounded-lg border border-dashed border-border bg-secondary/20 overflow-hidden">
+        {ideas.length === 0 && (
+          <p className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground px-6 text-center">
+            Nothing here yet — click "+ New idea" to drop the first sticky.
+          </p>
+        )}
+        {ideas.map(note => (
+          <div
+            key={note.id}
+            onPointerDown={e => onStickyPointerDown(e, note)}
+            onPointerMove={onStickyPointerMove}
+            onPointerUp={onStickyPointerUp}
+            style={{ left: note.x, top: note.y, width: STICKY_W, backgroundColor: note.color ?? STICKY_COLORS[0] }}
+            className="absolute rounded-md shadow-md p-2 cursor-grab active:cursor-grabbing select-none touch-none"
+          >
+            <textarea
+              value={note.text}
+              onChange={e => updateLaunchNote(note.id, { text: e.target.value })}
+              onPointerDown={e => e.stopPropagation()}
+              placeholder="Type an idea…"
+              className="w-full bg-transparent text-xs text-black/80 resize-none outline-none min-h-[70px]"
+            />
+            <div className="flex items-center justify-between mt-1" onPointerDown={e => e.stopPropagation()}>
+              <button onClick={() => handlePromote(note.id)} title="Promote to a roadmap task" className="text-[10px] font-semibold text-black/60 hover:text-black">→ Task</button>
+              <button onClick={() => deleteLaunchNote(note.id)} className="text-[10px] text-black/50 hover:text-black">✕</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function NotesTab() {
   const { launchNotes } = useStore();
   const { addLaunchNote, deleteLaunchNote } = useMutateStore();
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
+  const journalNotes = launchNotes.filter(n => n.kind === 'journal');
 
   function save() {
     if (!title.trim() || !text.trim()) return;
@@ -576,6 +791,8 @@ function NotesTab() {
 
   return (
     <div className="grid md:grid-cols-2 gap-6">
+      <IdeaBoard />
+
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-lg font-serif mb-3">Add session note</h2>
         <Field label="Date">
@@ -591,9 +808,9 @@ function NotesTab() {
       </div>
       <div className="bg-card border border-border rounded-xl p-5">
         <h2 className="text-lg font-serif mb-3">Founder decision log</h2>
-        {launchNotes.length === 0 && <p className="text-sm text-muted-foreground">No notes yet.</p>}
+        {journalNotes.length === 0 && <p className="text-sm text-muted-foreground">No notes yet.</p>}
         <div className="space-y-0">
-          {launchNotes.map(n => (
+          {journalNotes.map(n => (
             <div key={n.id} className="border-t border-border/50 py-3 first:border-t-0">
               <div className="text-xs text-muted-foreground">{n.date}</div>
               <h3 className="font-serif text-base">{n.title}</h3>

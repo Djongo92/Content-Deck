@@ -201,11 +201,18 @@ export const launchLeadsTable = pgTable("launch_leads", {
   linkedClientId: text("linked_client_id"),
 });
 
+// kind distinguishes the dated founder journal ("journal") from freeform
+// brainstorming stickies ("idea"); x/y/color only apply to idea stickies,
+// positioned on the idea-board canvas.
 export const launchNotesTable = pgTable("launch_notes", {
   id: text("id").primaryKey(),
   date: text("date").notNull().default(""),
   title: text("title").notNull().default(""),
   text: text("text").notNull().default(""),
+  kind: text("kind").notNull().default("journal"),
+  x: real("x"),
+  y: real("y"),
+  color: text("color"),
 });
 
 // relatedPhase links a gate to a roadmap phase so the UI can show how many

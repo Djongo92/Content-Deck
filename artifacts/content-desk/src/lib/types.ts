@@ -177,6 +177,7 @@ export type LaunchTask = {
   done: boolean;
   createdAt: string;
   notes: string;
+  seriesId: string | null;
 };
 
 export type LaunchLeadStatus = 'Lead' | 'Contacted' | 'Proposal' | 'Active' | 'Paused' | 'Closed';
@@ -222,6 +223,28 @@ export type LaunchActivity = {
   at: string;
   summary: string;
   kind: string;
+  refId: string | null;
+  refType: string | null;
+};
+
+export type LaunchRecurringTask = {
+  id: string;
+  title: string;
+  phase: number;
+  owner: string;
+  frequency: 'weekly' | 'biweekly' | 'monthly';
+  dayOfWeek: number;
+  active: boolean;
+  lastGeneratedOn: string | null;
+};
+
+export type CaseStudy = {
+  id: string;
+  clientId: string;
+  title: string;
+  narrative: string;
+  deliverableIds: string[];
+  createdAt: string;
 };
 
 export type LaunchSettings = {
@@ -273,6 +296,8 @@ export type StoreState = {
   launchGates: LaunchGate[];
   launchSettings: LaunchSettings[];
   launchActivity: LaunchActivity[];
+  launchRecurringTasks: LaunchRecurringTask[];
+  caseStudies: CaseStudy[];
 };
 
 export type SaveStatus = 'saved' | 'saving' | 'offline' | 'loading';

@@ -67,6 +67,11 @@ export const api = {
   transcribe: (audio: string) =>
     req<{ text: string }>('/api/content-ai/transcribe', { method: 'POST', body: JSON.stringify({ audio }) }),
 
+  caseStudyDraft: (body: {
+    clientName: string; voice?: string;
+    pieces: { title: string; platform: string; copy: string; views: number; likes: number; comments: number; shares: number }[];
+  }) => req<{ narrative: string }>('/api/content-ai/case-study-draft', { method: 'POST', body: JSON.stringify(body) }),
+
   requestUploadUrl: (meta: { name: string; size: number; contentType: string }) =>
     req<{ uploadURL: string; objectPath: string }>('/api/storage/uploads/request-url', {
       method: 'POST', body: JSON.stringify(meta),
@@ -83,6 +88,9 @@ export const api = {
       req<{ reply: string; changes: ProposedChange[] }>(`/api/launch/phases/${phase}/amend`, {
         method: 'POST', body: JSON.stringify({ question, history }),
       }),
+
+    devilsAdvocate: () =>
+      req<{ critique: string }>('/api/launch/devils-advocate', { method: 'POST', body: '{}' }),
   },
 };
 

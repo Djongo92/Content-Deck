@@ -76,6 +76,7 @@ const LAUNCH_SEED_TASKS = LAUNCH_SEED_RAW.map(([title, due, phase]) => ({
   done: false,
   createdAt: new Date().toISOString(),
   notes: '',
+  seriesId: null,
 }));
 
 export const SEED_DATA: StoreState = {
@@ -212,6 +213,8 @@ export const SEED_DATA: StoreState = {
     launchDate: '2027-04-12',
   }],
   launchActivity: [],
+  launchRecurringTasks: [],
+  caseStudies: [],
 };
 
 // --- Sync machinery -----------------------------------------------------------
@@ -224,6 +227,7 @@ type CollectionKey = keyof StoreState;
 const SYNC_KEYS: CollectionKey[] = [
   'clients', 'briefs', 'deliverables', 'events', 'versions', 'assets', 'tasks', 'notes', 'metrics', 'templates',
   'launchTasks', 'launchLeads', 'launchNotes', 'launchGates', 'launchSettings', 'launchActivity',
+  'launchRecurringTasks', 'caseStudies',
 ];
 
 let storeState: StoreState | null = null;
@@ -306,12 +310,14 @@ function normalize(state: Partial<StoreState> | null | undefined): StoreState {
     notes: (s.notes ?? []).map(n => ({ ...n, title: n.title ?? '', url: n.url ?? '', kind: n.kind ?? ('idea' as const) })),
     metrics: s.metrics ?? [],
     templates: s.templates ?? [],
-    launchTasks: (s.launchTasks ?? []).map(t => ({ ...t, notes: t.notes ?? '' })),
+    launchTasks: (s.launchTasks ?? []).map(t => ({ ...t, notes: t.notes ?? '', seriesId: t.seriesId ?? null })),
     launchLeads: (s.launchLeads ?? []).map(l => ({ ...l, linkedClientId: l.linkedClientId ?? null })),
     launchNotes: (s.launchNotes ?? []).map(n => ({ ...n, kind: n.kind ?? 'journal', x: n.x ?? null, y: n.y ?? null, color: n.color ?? null })),
     launchGates: (s.launchGates ?? []).map(g => ({ ...g, relatedPhase: g.relatedPhase ?? null, kind: g.kind ?? 'milestone' })),
     launchSettings: s.launchSettings?.length ? s.launchSettings.map(ls => ({ ...DEFAULT_LAUNCH_SETTINGS, ...ls })) : [DEFAULT_LAUNCH_SETTINGS],
-    launchActivity: s.launchActivity ?? [],
+    launchActivity: (s.launchActivity ?? []).map(a => ({ ...a, refId: a.refId ?? null, refType: a.refType ?? null })),
+    launchRecurringTasks: s.launchRecurringTasks ?? [],
+    caseStudies: (s.caseStudies ?? []).map(c => ({ ...c, deliverableIds: c.deliverableIds ?? [] })),
   };
 }
 

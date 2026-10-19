@@ -190,6 +190,9 @@ export const launchTasksTable = pgTable("launch_tasks", {
   done: boolean("done").notNull().default(false),
   createdAt: text("created_at").notNull().default(""),
   notes: text("notes").notNull().default(""),
+  // Non-null only for tasks materialized from a launch_recurring_tasks rule,
+  // so a later generation pass can dedupe by (seriesId, due) like templates do.
+  seriesId: text("series_id"),
 }, (t) => [index("launch_tasks_phase_idx").on(t.phase)]);
 
 export const launchLeadsTable = pgTable("launch_leads", {
@@ -239,6 +242,10 @@ export const launchActivityTable = pgTable("launch_activity", {
   at: text("at").notNull(),
   summary: text("summary").notNull().default(""),
   kind: text("kind").notNull().default("info"),
+  // Optional attribution so a lead's (or other entity's) timeline can be
+  // filtered out of the global feed -- null for entries with no single owner.
+  refId: text("ref_id"),
+  refType: text("ref_type"),
 });
 
 // Singleton: always exactly one row, id 'default'.
@@ -256,6 +263,32 @@ export const launchSettingsTable = pgTable("launch_settings", {
   clearance: text("clearance").notNull().default("Not checked"),
   stack: text("stack").notNull().default(""),
   launchDate: text("launch_date").notNull().default(""),
+});
+
+// Recurring rule that materializes into real launch_tasks rows (via
+// seriesId), mirroring templatesTable's generate-on-visit pattern.
+export const launchRecurringTasksTable = pgTable("launch_recurring_tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull().default(""),
+  phase: integer("phase").notNull().default(0),
+  owner: text("owner").notNull().default("Tisa"),
+  frequency: text("frequency").notNull().default("weekly"), // weekly | biweekly | monthly
+  dayOfWeek: integer("day_of_week").notNull().default(1), // 0=Sun
+  active: boolean("active").notNull().default(true),
+  lastGeneratedOn: text("last_generated_on"), // YYYY-MM-DD
+});
+
+// Proof-of-work one-pagers assembled from a client's best-performing
+// deliverables -- feeds directly into "collect case study evidence" style
+// launch tasks. deliverableIds is a loose reference list, like every other
+// cross-table reference in this schema (no DB-level FK).
+export const caseStudiesTable = pgTable("case_studies", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull().default(""),
+  title: text("title").notNull().default(""),
+  narrative: text("narrative").notNull().default(""),
+  deliverableIds: jsonb("deliverable_ids").$type<string[]>().notNull().default([]),
+  createdAt: text("created_at").notNull().default(""),
 });
 
 export type ClientRow = typeof clientsTable.$inferSelect;

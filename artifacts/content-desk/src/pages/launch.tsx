@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
-import { addWeeks, differenceInCalendarWeeks, format, formatDistanceToNow, startOfWeek } from 'date-fns';
+import { addDays, addWeeks, differenceInCalendarWeeks, format, formatDistanceToNow, startOfWeek } from 'date-fns';
 import { toast } from 'sonner';
-import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, History, Send, Loader2 } from 'lucide-react';
+import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, History, Printer, Repeat, Send, Loader2, ShieldAlert } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api, type ProposedChange } from '@/lib/api';
-import { LAUNCH_PHASE_LABELS, LaunchActivity, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchSettings, LaunchTask, STICKY_COLORS } from '@/lib/types';
+import { LAUNCH_PHASE_LABELS, LaunchActivity, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchRecurringTask, LaunchSettings, LaunchTask, STICKY_COLORS } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const LEAD_STATUSES: LaunchLeadStatus[] = ['Lead', 'Contacted', 'Proposal', 'Active', 'Paused', 'Closed'];
@@ -15,10 +15,20 @@ function fmtEUR(n: number): string {
   return '€' + Math.round(n || 0).toLocaleString('en-US');
 }
 
+function snoozedDue(due: string): string {
+  const base = due ? new Date(due + 'T00:00:00') : new Date();
+  const next = isNaN(base.getTime()) ? new Date() : base;
+  return format(addDays(next, 7), 'yyyy-MM-dd');
+}
+
 const TABS = ['Overview', 'Roadmap', 'Clients & Finances', 'Brand & Settings', 'Notes', 'Memo'] as const;
 type Tab = typeof TABS[number];
 
-type DiscussContext = { type: 'general' } | { type: 'task'; task: LaunchTask } | { type: 'gate'; gate: LaunchGate };
+type DiscussContext =
+  | { type: 'general' }
+  | { type: 'task'; task: LaunchTask }
+  | { type: 'gate'; gate: LaunchGate }
+  | { type: 'custom'; label: string; starter: string };
 
 const CONFETTI_COLORS = ['#d94e38', '#3F7169', '#C6A15B', '#6B5B95', '#9C3B4A'];
 
@@ -119,12 +129,119 @@ function ChangelogPanel({ activity, onClose }: { activity: LaunchActivity[]; onC
   );
 }
 
+function PlanExportModal({
+  launchTasks, launchGates, launchLeads, launchSettings, onClose,
+}: {
+  launchTasks: LaunchTask[];
+  launchGates: LaunchGate[];
+  launchLeads: LaunchLead[];
+  launchSettings: LaunchSettings[];
+  onClose: () => void;
+}) {
+  const settings = launchSettings[0];
+  const revenue = launchLeads.filter(l => l.status === 'Active').reduce((sum, l) => sum + (l.fee || 0), 0);
+  const readiness = computeReadiness(launchTasks, launchGates, revenue);
+  const milestoneGates = launchGates.filter(g => g.kind === 'milestone');
+  const questionGates = launchGates.filter(g => g.kind === 'question');
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm print:bg-white print:p-0" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #plan-export-printable, #plan-export-printable * { visibility: visible; }
+          #plan-export-printable { position: absolute; top: 0; left: 0; width: 100%; box-shadow: none !important; border: none !important; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+      <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-xl max-h-[90vh] overflow-y-auto print:max-h-none print:overflow-visible print:rounded-none">
+        <div className="no-print flex items-center justify-between p-5 border-b border-border">
+          <h2 className="font-serif text-xl">One-page plan export</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.print()} className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:brightness-110">
+              <Printer className="h-4 w-4" /> Print / Save as PDF
+            </button>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+          </div>
+        </div>
+
+        <div id="plan-export-printable" className="p-8 text-sm">
+          <div className="flex items-start justify-between mb-1">
+            <div>
+              <p className="text-xs font-bold tracking-widest text-primary uppercase">Launch plan snapshot</p>
+              <h1 className="font-serif text-2xl mt-1">{settings?.brandName || 'Algo-Rhythm'}</h1>
+              <p className="text-muted-foreground">{settings?.headline}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-3xl font-serif">{readiness.overall}<span className="text-sm text-muted-foreground">/100</span></p>
+              <p className="text-xs text-muted-foreground">readiness</p>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mb-6">Generated {format(new Date(), 'MMM d, yyyy')} · target launch {settings?.launchDate ? format(new Date(settings.launchDate + 'T00:00:00'), 'MMM d, yyyy') : 'not set'}</p>
+
+          <h3 className="font-serif text-base mb-2 mt-5">Roadmap</h3>
+          <div className="space-y-1.5 mb-5">
+            {LAUNCH_PHASE_LABELS.map((label, p) => {
+              const tasks = launchTasks.filter(t => t.phase === p);
+              const done = tasks.filter(t => t.done).length;
+              return (
+                <div key={p} className="flex items-center justify-between border-b border-border/50 py-1">
+                  <span>{p + 1}. {label}</span>
+                  <span className="text-muted-foreground">{done}/{tasks.length} · {phaseDateRange(tasks)}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <h3 className="font-serif text-base mb-2">Decision gates</h3>
+          <div className="space-y-1 mb-5">
+            {milestoneGates.map(g => (
+              <div key={g.id} className="flex items-center gap-2">
+                <span className={cn('inline-block w-1.5 h-1.5 rounded-full', g.done ? 'bg-emerald-500' : 'bg-muted-foreground')} />
+                <span className={cn(g.done && 'text-muted-foreground line-through')}>{g.title}</span>
+              </div>
+            ))}
+          </div>
+
+          {questionGates.length > 0 && (
+            <>
+              <h3 className="font-serif text-base mb-2">Open questions</h3>
+              <div className="space-y-1 mb-5">
+                {questionGates.map(q => (
+                  <div key={q.id} className="flex items-center gap-2">
+                    <span className={cn('inline-block w-1.5 h-1.5 rounded-full', q.done ? 'bg-emerald-500' : 'bg-muted-foreground')} />
+                    <span className={cn(q.done && 'text-muted-foreground line-through')}>{q.title}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <h3 className="font-serif text-base mb-2">Clients & leads</h3>
+          <div className="space-y-1">
+            {launchLeads.map(l => (
+              <div key={l.id} className="flex items-center justify-between border-b border-border/50 py-1">
+                <span>{l.name} <span className="text-muted-foreground">({l.status})</span></span>
+                <span className="text-muted-foreground">{fmtEUR(l.fee)}/mo · {l.hours}h</span>
+              </div>
+            ))}
+            {launchLeads.length === 0 && <p className="text-muted-foreground">No leads tracked yet.</p>}
+          </div>
+          <p className="mt-2 font-medium">Current recurring revenue: {fmtEUR(revenue)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LaunchPage() {
-  const { launchTasks, launchGates, launchActivity } = useStore();
+  const { launchTasks, launchGates, launchActivity, launchLeads, launchSettings } = useStore();
   const [tab, setTab] = useState<Tab>('Overview');
   const [discussContext, setDiscussContext] = useState<DiscussContext | null>(null);
   const [amendPhase, setAmendPhase] = useState<number | null>(null);
   const [changelogOpen, setChangelogOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [devilsAdvocateOpen, setDevilsAdvocateOpen] = useState(false);
   const { showConfetti, confettiKey } = useCelebration(launchTasks, launchGates);
 
   return (
@@ -134,12 +251,26 @@ export default function LaunchPage() {
           <h1 className="text-3xl font-serif text-foreground">Algo-Rhythm Launch</h1>
           <p className="text-sm text-muted-foreground mt-1">Planning workspace for Tisa's studio launch and ongoing operation</p>
         </div>
-        <button
-          onClick={() => setDiscussContext({ type: 'general' })}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm shadow-sm hover:brightness-110 transition-all"
-        >
-          <Sparkles className="w-4 h-4" /> Discuss the plan
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setDevilsAdvocateOpen(true)}
+            className="flex items-center gap-2 border border-border bg-secondary px-3 py-2 rounded-md font-medium text-sm hover:border-primary transition-all"
+          >
+            <ShieldAlert className="w-4 h-4" /> Reality check
+          </button>
+          <button
+            onClick={() => setExportOpen(true)}
+            className="flex items-center gap-2 border border-border bg-secondary px-3 py-2 rounded-md font-medium text-sm hover:border-primary transition-all"
+          >
+            <Printer className="w-4 h-4" /> Export one-pager
+          </button>
+          <button
+            onClick={() => setDiscussContext({ type: 'general' })}
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm shadow-sm hover:brightness-110 transition-all"
+          >
+            <Sparkles className="w-4 h-4" /> Discuss the plan
+          </button>
+        </div>
       </header>
 
       <div className="flex border-b border-border mb-6 overflow-x-auto">
@@ -164,15 +295,75 @@ export default function LaunchPage() {
       {tab === 'Notes' && <NotesTab />}
       {tab === 'Memo' && <MemoTab />}
 
-      {discussContext && <DiscussPanel key={discussContext.type === 'general' ? 'general' : discussContext.type === 'task' ? `task-${discussContext.task.id}` : `gate-${discussContext.gate.id}`} context={discussContext} onClose={() => setDiscussContext(null)} />}
+      {discussContext && <DiscussPanel key={discussContextKey(discussContext)} context={discussContext} onClose={() => setDiscussContext(null)} />}
       {amendPhase != null && <PhaseAmendPanel key={`amend-${amendPhase}`} phase={amendPhase} launchTasks={launchTasks} onClose={() => setAmendPhase(null)} />}
       {changelogOpen && <ChangelogPanel activity={launchActivity} onClose={() => setChangelogOpen(false)} />}
+      {exportOpen && (
+        <PlanExportModal
+          launchTasks={launchTasks}
+          launchGates={launchGates}
+          launchLeads={launchLeads}
+          launchSettings={launchSettings}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
+      {devilsAdvocateOpen && <DevilsAdvocateModal onClose={() => setDevilsAdvocateOpen(false)} onDiscuss={setDiscussContext} />}
       {showConfetti && <ConfettiBurst key={confettiKey} />}
     </div>
   );
 }
 
 // --- Overview ----------------------------------------------------------------
+
+function computeReadiness(launchTasks: LaunchTask[], launchGates: LaunchGate[], revenue: number) {
+  const execution = launchTasks.length ? (launchTasks.filter(t => t.done).length / launchTasks.length) * 100 : 0;
+
+  const milestoneGates = launchGates.filter(g => g.kind === 'milestone');
+  const gatesScore = milestoneGates.length ? (milestoneGates.filter(g => g.done).length / milestoneGates.length) * 100 : 0;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const next = REVENUE_MILESTONES.find(m => m.date >= today) ?? REVENUE_MILESTONES[REVENUE_MILESTONES.length - 1];
+  const target = (next.low + next.high) / 2;
+  const revenueScore = target ? Math.min(100, (revenue / target) * 100) : 0;
+
+  const overall = Math.round(execution * 0.4 + gatesScore * 0.35 + revenueScore * 0.25);
+  return {
+    overall,
+    execution: Math.round(execution),
+    gatesScore: Math.round(gatesScore),
+    revenueScore: Math.round(revenueScore),
+    nextLabel: next.label,
+  };
+}
+
+function ReadinessCard({ launchTasks, launchGates, revenue }: { launchTasks: LaunchTask[]; launchGates: LaunchGate[]; revenue: number }) {
+  const r = computeReadiness(launchTasks, launchGates, revenue);
+  const band = r.overall >= 70
+    ? { label: 'On track', color: 'text-emerald-600' }
+    : r.overall >= 40
+    ? { label: 'Building', color: 'text-amber-600' }
+    : { label: 'Early days', color: 'text-muted-foreground' };
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-serif">Launch readiness</h2>
+        <span className={cn('text-xs font-semibold', band.color)}>{band.label}</span>
+      </div>
+      <div className="flex items-end gap-4 mb-3">
+        <p className="text-4xl font-serif leading-none">{r.overall}<span className="text-lg text-muted-foreground">/100</span></p>
+        <div className="flex-1 h-2.5 rounded-full bg-secondary overflow-hidden">
+          <div className="h-full bg-primary transition-all" style={{ width: `${r.overall}%` }} />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        <div><p className="text-muted-foreground">Execution</p><p className="font-medium text-foreground mt-0.5">{r.execution}%</p></div>
+        <div><p className="text-muted-foreground">Gates cleared</p><p className="font-medium text-foreground mt-0.5">{r.gatesScore}%</p></div>
+        <div><p className="text-muted-foreground">Revenue vs {r.nextLabel}</p><p className="font-medium text-foreground mt-0.5">{r.revenueScore}%</p></div>
+      </div>
+    </div>
+  );
+}
 
 function OverviewTab({
   onOpenRoadmap, onDiscuss, onOpenChangelog,
@@ -181,8 +372,8 @@ function OverviewTab({
   onDiscuss: (ctx: DiscussContext) => void;
   onOpenChangelog: () => void;
 }) {
-  const { launchTasks, launchLeads, launchSettings, launchActivity } = useStore();
-  const { toggleLaunchTask } = useMutateStore();
+  const { launchTasks, launchLeads, launchSettings, launchActivity, launchGates } = useStore();
+  const { toggleLaunchTask, updateLaunchTask } = useMutateStore();
   const settings = launchSettings[0];
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const openTask = launchTasks.find(t => t.id === openTaskId) ?? null;
@@ -210,6 +401,8 @@ function OverviewTab({
         </div>
       )}
 
+      <ReadinessCard launchTasks={launchTasks} launchGates={launchGates} revenue={revenue} />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Metric label="Public launch" value={launchDate ? launchDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Not set'} sub={launchDate ? launchDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Set one in Brand & Settings'} />
         <Metric label="Current recurring revenue" value={fmtEUR(revenue)} sub="From the client / lead tracker" />
@@ -233,6 +426,13 @@ function OverviewTab({
               <input type="checkbox" checked={t.done} onClick={e => e.stopPropagation()} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-4 h-4" />
               <span className="flex-1 text-sm font-medium">{t.title}</span>
               <span className="text-xs text-muted-foreground">{t.due}</span>
+              <button
+                onClick={e => { e.stopPropagation(); updateLaunchTask(t.id, { due: snoozedDue(t.due) }); }}
+                title="Push the due date back a week"
+                className="text-[11px] text-muted-foreground hover:text-primary"
+              >
+                +7d
+              </button>
               <span className="text-[11px] rounded-full bg-secondary px-2 py-0.5">{LAUNCH_PHASE_LABELS[t.phase] ?? '—'}</span>
             </div>
           ))}
@@ -302,7 +502,10 @@ function TaskModal({ task, onClose, onDiscuss }: { task: LaunchTask; onClose: ()
 
         <div className="grid grid-cols-2 gap-3 mb-4">
           <Field label="Due date">
-            <input type="date" value={task.due} onChange={e => updateLaunchTask(task.id, { due: e.target.value })} className="w-full bg-secondary border border-border rounded-md p-2 text-sm" />
+            <div className="flex items-center gap-2">
+              <input type="date" value={task.due} onChange={e => updateLaunchTask(task.id, { due: e.target.value })} className="flex-1 min-w-0 bg-secondary border border-border rounded-md p-2 text-sm" />
+              <button type="button" onClick={() => updateLaunchTask(task.id, { due: snoozedDue(task.due) })} title="Push the due date back a week" className="shrink-0 text-xs font-medium text-muted-foreground hover:text-primary whitespace-nowrap">+7d</button>
+            </div>
           </Field>
           <Field label="Owner">
             <input value={task.owner} onChange={e => updateLaunchTask(task.id, { owner: e.target.value })} className="w-full bg-secondary border border-border rounded-md p-2 text-sm" />
@@ -724,15 +927,83 @@ function WeeklyLoadHeatmap({ launchTasks }: { launchTasks: LaunchTask[] }) {
   );
 }
 
+const RECURRING_FREQUENCIES: LaunchRecurringTask['frequency'][] = ['weekly', 'biweekly', 'monthly'];
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function RecurringTasksModal({ rules, onClose }: { rules: LaunchRecurringTask[]; onClose: () => void }) {
+  const { addRecurringLaunchTask, updateRecurringLaunchTask, deleteRecurringLaunchTask } = useMutateStore();
+  const [title, setTitle] = useState('');
+
+  function add() {
+    if (!title.trim()) return;
+    addRecurringLaunchTask({ title });
+    setTitle('');
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-xl max-h-[85vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-serif text-xl">Recurring tasks</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">Standing roadmap items that regenerate on their own schedule — e.g. "every Monday: review the pipeline" — instead of being re-added by hand.</p>
+
+        <div className="flex gap-2 mb-4">
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') add(); }}
+            placeholder="e.g. Review the pipeline"
+            className="flex-1 bg-secondary border border-border rounded-md p-2 text-sm"
+          />
+          <button onClick={add} disabled={!title.trim()} className="text-xs font-medium bg-primary text-primary-foreground px-3 py-2 rounded-md disabled:opacity-50">Add</button>
+        </div>
+
+        <div className="space-y-3">
+          {rules.map(r => (
+            <div key={r.id} className="border border-border rounded-md p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <input value={r.title} onChange={e => updateRecurringLaunchTask(r.id, { title: e.target.value })} className="flex-1 bg-transparent text-sm font-medium outline-none border-b border-transparent focus:border-primary" />
+                <button onClick={() => deleteRecurringLaunchTask(r.id)} className="text-xs text-destructive hover:underline shrink-0">Remove</button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <select value={r.phase} onChange={e => updateRecurringLaunchTask(r.id, { phase: Number(e.target.value) })} className="bg-secondary border border-border rounded-md p-1.5">
+                  {LAUNCH_PHASE_LABELS.map((label, p) => <option key={p} value={p}>{label}</option>)}
+                </select>
+                <select value={r.frequency} onChange={e => updateRecurringLaunchTask(r.id, { frequency: e.target.value as LaunchRecurringTask['frequency'] })} className="bg-secondary border border-border rounded-md p-1.5">
+                  {RECURRING_FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+                <select value={r.dayOfWeek} onChange={e => updateRecurringLaunchTask(r.id, { dayOfWeek: Number(e.target.value) })} className="bg-secondary border border-border rounded-md p-1.5">
+                  {DAY_NAMES.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                </select>
+                <label className="flex items-center gap-1.5 bg-secondary border border-border rounded-md p-1.5">
+                  <input type="checkbox" checked={r.active} onChange={e => updateRecurringLaunchTask(r.id, { active: e.target.checked })} className="accent-primary w-3.5 h-3.5" /> Active
+                </label>
+              </div>
+            </div>
+          ))}
+          {rules.length === 0 && <p className="text-sm text-muted-foreground py-2">No recurring tasks yet.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RoadmapTab({ onDiscuss, onAmendPhase }: { onDiscuss: (ctx: DiscussContext) => void; onAmendPhase: (phase: number) => void }) {
-  const { launchTasks, launchGates } = useStore();
-  const { addLaunchTask, updateLaunchTask, toggleLaunchTask, updateLaunchGate } = useMutateStore();
+  const { launchTasks, launchGates, launchRecurringTasks } = useStore();
+  const { addLaunchTask, updateLaunchTask, toggleLaunchTask, updateLaunchGate, generateLaunchTasksFromRecurring } = useMutateStore();
   const [dragOverPhase, setDragOverPhase] = useState<number | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [openGateId, setOpenGateId] = useState<string | null>(null);
   const [openPhaseId, setOpenPhaseId] = useState<number | null>(null);
+  const [recurringOpen, setRecurringOpen] = useState(false);
   const openTask = launchTasks.find(t => t.id === openTaskId) ?? null;
   const openGate = launchGates.find(g => g.id === openGateId) ?? null;
+
+  useEffect(() => {
+    generateLaunchTasksFromRecurring(4);
+  }, [generateLaunchTasksFromRecurring]);
 
   const doneCount = launchTasks.filter(t => t.done).length;
   const progress = launchTasks.length ? Math.round((100 * doneCount) / launchTasks.length) : 0;
@@ -755,9 +1026,14 @@ function RoadmapTab({ onDiscuss, onAmendPhase }: { onDiscuss: (ctx: DiscussConte
       <WeeklyLoadHeatmap launchTasks={launchTasks} />
 
       <div className="bg-card border border-border rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h2 className="text-xl font-serif">Execution board</h2>
-          <p className="text-xs text-muted-foreground">{doneCount} of {launchTasks.length} complete · drag a card to move it, click to open it</p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-muted-foreground">{doneCount} of {launchTasks.length} complete · drag a card to move it, click to open it</p>
+            <button onClick={() => setRecurringOpen(true)} className="text-xs font-medium text-muted-foreground hover:text-primary hover:underline flex items-center gap-1 shrink-0">
+              <Repeat className="w-3.5 h-3.5" /> Recurring tasks
+            </button>
+          </div>
         </div>
         <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
           {LAUNCH_PHASE_LABELS.map((label, phase) => {
@@ -849,6 +1125,7 @@ function RoadmapTab({ onDiscuss, onAmendPhase }: { onDiscuss: (ctx: DiscussConte
           onAmend={phase => { setOpenPhaseId(null); onAmendPhase(phase); }}
         />
       )}
+      {recurringOpen && <RecurringTasksModal rules={launchRecurringTasks} onClose={() => setRecurringOpen(false)} />}
     </div>
   );
 }
@@ -890,9 +1167,9 @@ function LeadFunnel({ launchLeads }: { launchLeads: LaunchLead[] }) {
 }
 
 const REVENUE_MILESTONES = [
-  { label: 'Feb 2027', low: 900, high: 1300 },
-  { label: 'Apr 2027', low: 1200, high: 1800 },
-  { label: 'Sep 2027', low: 2500, high: 3000 },
+  { label: 'Feb 2027', date: '2027-02-01', low: 900, high: 1300 },
+  { label: 'Apr 2027', date: '2027-04-01', low: 1200, high: 1800 },
+  { label: 'Sep 2027', date: '2027-09-01', low: 2500, high: 3000 },
 ];
 
 function RevenueMilestoneChart({ revenue }: { revenue: number }) {
@@ -974,10 +1251,35 @@ function PricingSandbox({
   );
 }
 
+function LeadTimelineModal({ lead, activity, onClose }: { lead: LaunchLead; activity: LaunchActivity[]; onClose: () => void }) {
+  const entries = activity.filter(a => a.refType === 'lead' && a.refId === lead.id).sort((a, b) => b.at.localeCompare(a.at));
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl max-h-[80vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-serif text-xl">{lead.name} — history</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-3">
+          {entries.map(e => (
+            <div key={e.id} className="border-t border-border/50 pt-2 first:border-t-0 first:pt-0">
+              <p className="text-sm">{e.summary}</p>
+              <p className="text-[11px] text-muted-foreground">{formatDistanceToNow(new Date(e.at), { addSuffix: true })}</p>
+            </div>
+          ))}
+          {entries.length === 0 && <p className="text-sm text-muted-foreground">Nothing recorded yet.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ClientsFinancesTab() {
-  const { launchLeads, launchSettings } = useStore();
-  const { addLaunchLead, updateLaunchLead, deleteLaunchLead, convertLaunchLead, updateLaunchSettings } = useMutateStore();
+  const { launchLeads, launchSettings, launchActivity } = useStore();
+  const { addLaunchLead, updateLaunchLead, deleteLaunchLead, convertLaunchLead, updateLaunchSettings, logActivity } = useMutateStore();
   const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [timelineLeadId, setTimelineLeadId] = useState<string | null>(null);
+  const nextOnFocusRef = useRef<Record<string, string>>({});
   const settings = launchSettings[0];
 
   const activeLeads = launchLeads.filter(l => l.status === 'Active');
@@ -1049,7 +1351,20 @@ function ClientsFinancesTab() {
                   </td>
                   <td className="py-2 pr-2"><input type="number" min={0} value={l.fee} onChange={e => updateLaunchLead(l.id, { fee: Math.max(0, Number(e.target.value) || 0) })} className="w-20 bg-transparent rounded px-1.5 py-1 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none" /></td>
                   <td className="py-2 pr-2"><input type="number" min={0} value={l.hours} onChange={e => updateLaunchLead(l.id, { hours: Math.max(0, Number(e.target.value) || 0) })} className="w-20 bg-transparent rounded px-1.5 py-1 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none" /></td>
-                  <td className="py-2 pr-2"><input value={l.next} onChange={e => updateLaunchLead(l.id, { next: e.target.value })} className="w-full min-w-[140px] bg-transparent rounded px-1.5 py-1 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none" /></td>
+                  <td className="py-2 pr-2">
+                    <input
+                      value={l.next}
+                      onFocus={() => { nextOnFocusRef.current[l.id] = l.next; }}
+                      onChange={e => updateLaunchLead(l.id, { next: e.target.value })}
+                      onBlur={() => {
+                        const before = nextOnFocusRef.current[l.id];
+                        if (before !== undefined && before !== l.next && l.next.trim()) {
+                          logActivity(`"${l.name}" next action: "${l.next.trim()}"`, 'lead_next', { id: l.id, type: 'lead' });
+                        }
+                      }}
+                      className="w-full min-w-[140px] bg-transparent rounded px-1.5 py-1 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none"
+                    />
+                  </td>
                   <td className="py-2 pr-2">
                     {l.linkedClientId ? (
                       <Link href="/clients" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
@@ -1067,7 +1382,10 @@ function ClientsFinancesTab() {
                       <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="py-2"><button onClick={() => handleDelete(l.id)} className="text-destructive text-sm font-bold px-1">×</button></td>
+                  <td className="py-2 flex items-center gap-1">
+                    <button onClick={() => setTimelineLeadId(l.id)} title="History" className="text-muted-foreground hover:text-primary p-1"><History className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => handleDelete(l.id)} className="text-destructive text-sm font-bold px-1">×</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1124,6 +1442,11 @@ function ClientsFinancesTab() {
         </div>
         <p className="text-xs text-muted-foreground mt-3">Working prices to test with Serbian buyers. Scope and event editing must be capped in every offer. One-off WordPress sites: €600–1,200; site maintenance: €75–150/mo; strategy projects: €400–900.</p>
       </div>
+
+      {timelineLeadId && (() => {
+        const lead = launchLeads.find(l => l.id === timelineLeadId);
+        return lead ? <LeadTimelineModal lead={lead} activity={launchActivity} onClose={() => setTimelineLeadId(null)} /> : null;
+      })()}
     </div>
   );
 }
@@ -1491,6 +1814,13 @@ function MemoTab() {
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
+function discussContextKey(context: DiscussContext): string {
+  if (context.type === 'task') return `task-${context.task.id}`;
+  if (context.type === 'gate') return `gate-${context.gate.id}`;
+  if (context.type === 'custom') return `custom-${context.label}`;
+  return 'general';
+}
+
 function discussStarter(context: DiscussContext): string {
   if (context.type === 'task') {
     const phase = LAUNCH_PHASE_LABELS[context.task.phase] ?? 'unphased';
@@ -1499,13 +1829,73 @@ function discussStarter(context: DiscussContext): string {
   if (context.type === 'gate') {
     return `Let's talk about the milestone "${context.gate.title}". `;
   }
+  if (context.type === 'custom') {
+    return context.starter;
+  }
   return '';
 }
 
 function discussLabel(context: DiscussContext): string | null {
   if (context.type === 'task') return `Task: ${context.task.title}`;
   if (context.type === 'gate') return `Milestone: ${context.gate.title}`;
+  if (context.type === 'custom') return context.label;
   return null;
+}
+
+function DevilsAdvocateModal({ onClose, onDiscuss }: { onClose: () => void; onDiscuss: (ctx: DiscussContext) => void }) {
+  const [critique, setCritique] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setLoading(true);
+    setError(null);
+    try {
+      const { critique: result } = await api.launch.devilsAdvocate();
+      setCritique(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The reality check is temporarily unavailable.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { run(); }, []);
+
+  function handleDiscuss() {
+    onClose();
+    onDiscuss({ type: 'custom', label: 'Reality check', starter: "Let's dig into the reality check you just gave me. " });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-xl max-h-[85vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-primary" />
+            <h2 className="font-serif text-xl">Reality check</h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">A deliberately skeptical pass over the whole plan — not a collaborator, a critic.</p>
+
+        {loading && <div className="flex items-center gap-2 text-sm text-muted-foreground py-6"><Loader2 className="h-4 w-4 animate-spin" /> Looking for holes…</div>}
+        {error && <p className="text-sm text-destructive py-4">{error}</p>}
+        {critique && !loading && <p className="text-sm whitespace-pre-wrap leading-relaxed">{critique}</p>}
+
+        {!loading && (
+          <div className="flex items-center justify-between mt-5 pt-4 border-t border-border">
+            <button onClick={run} className="text-xs text-muted-foreground hover:text-foreground hover:underline">Run again</button>
+            {critique && (
+              <button onClick={handleDiscuss} className="flex items-center gap-1.5 text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md">
+                <Sparkles className="w-3.5 h-3.5" /> Discuss this
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function DiscussPanel({ context, onClose }: { context: DiscussContext; onClose: () => void }) {

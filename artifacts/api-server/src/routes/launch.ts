@@ -213,6 +213,46 @@ router.post("/launch/phases/:phase/amend", async (req: Request, res: Response) =
   }
 });
 
+// --- Devil's advocate: a deliberately skeptical pass over the whole plan ----
+
+const DEVILS_ADVOCATE_SYSTEM =
+  "You are a skeptical outside advisor stress-testing a solo founder's studio-launch plan. " +
+  "You are given the full plan. Do not be encouraging or diplomatic — find the weakest assumptions, the biggest unmitigated risks, and anything that doesn't add up (numbers that don't reconcile, dependencies nobody has resourced, timelines that assume everything goes right). " +
+  "Ground every point in the actual plan data given to you; never invent facts, figures, or progress not in it. " +
+  "Be concise and concrete: 4-6 short, numbered points, each one sentence stating the problem and one sentence saying what it would take to de-risk it. No preamble, no closing summary.";
+
+router.post("/launch/devils-advocate", async (req: Request, res: Response) => {
+  try {
+    const [settingsRows, leads, tasks, notes, gates] = await Promise.all([
+      db.select().from(launchSettingsTable).limit(1),
+      db.select().from(launchLeadsTable),
+      db.select().from(launchTasksTable),
+      db.select().from(launchNotesTable),
+      db.select().from(launchGatesTable),
+    ]);
+    const planSummary = summarizePlan({ settings: settingsRows[0], leads, tasks, notes, gates });
+
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      max_completion_tokens: 900,
+      messages: [
+        { role: "system", content: DEVILS_ADVOCATE_SYSTEM },
+        { role: "user", content: `Current plan data:\n\n${planSummary}` },
+      ],
+    });
+
+    const critique = completion.choices[0]?.message?.content?.trim();
+    if (!critique) {
+      res.status(502).json({ error: "The reality check returned nothing." });
+      return;
+    }
+    res.json({ critique });
+  } catch (error) {
+    req.log.error({ error }, "Devil's advocate request failed");
+    res.status(502).json({ error: "The reality check is temporarily unavailable." });
+  }
+});
+
 router.post("/launch/leads/:id/convert", async (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {

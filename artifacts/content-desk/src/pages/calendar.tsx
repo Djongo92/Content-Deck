@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, isToday, parseISO, startOfMonth, startOfWeek, subMonths } from 'date-fns';
-import { CalendarPlus, ChevronLeft, ChevronRight, FilePlus2, MapPin, Repeat, Rocket, Scale } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, ChevronLeft, ChevronRight, FilePlus2, MapPin, Repeat, Rocket, Scale } from 'lucide-react';
 import { toast } from 'sonner';
 import { DeliverableModal } from '@/components/deliverable-modal';
 import { EventModal } from '@/components/event-modal';
@@ -25,6 +25,15 @@ export default function CalendarPage() {
     () => deliverables.filter(deliverable => !deliverable.publishAt && !deliverable.productionDueAt),
     [deliverables]
   );
+  const contentGaps = useMemo(() => {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    return activeClients.filter(client => !deliverables.some(d => {
+      if (d.clientId !== client.id || !d.publishAt) return false;
+      const publishAt = parseISO(d.publishAt);
+      return publishAt >= now && publishAt <= horizon;
+    }));
+  }, [activeClients, deliverables]);
 
   useEffect(() => {
     generateFromTemplates(4);
@@ -379,6 +388,20 @@ export default function CalendarPage() {
                     </div>
                   );
                 })}
+              </div>
+            </section>
+          )}
+          {contentGaps.length > 0 && (
+            <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
+              <h2 className="flex items-center gap-2 font-serif text-lg"><AlertTriangle className="h-4 w-4 text-amber-600" /> Content gaps</h2>
+              <p className="mb-3 mt-1 text-xs text-muted-foreground">Nothing scheduled in the next 2 weeks.</p>
+              <div className="space-y-2">
+                {contentGaps.map(client => (
+                  <div key={client.id} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="flex min-w-0 items-center gap-2 truncate"><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: client.color }} />{client.name}</span>
+                    <button onClick={() => openNewContent()} className="shrink-0 text-xs text-primary hover:underline">+ Plan something</button>
+                  </div>
+                ))}
               </div>
             </section>
           )}

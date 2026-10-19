@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { store } from '@/lib/store';
 import { api } from '@/lib/api';
-import { DEFAULT_LAUNCH_SETTINGS, LaunchGate, LaunchLead, resolvePlatforms, SaveStatus, StoreState, Template } from '@/lib/types';
+import { DEFAULT_LAUNCH_SETTINGS, LaunchGate, LaunchLead, LaunchRecurringTask, resolvePlatforms, SaveStatus, StoreState, Template } from '@/lib/types';
 import { uuidv4 } from '@/lib/utils';
 
 export function useStore(): StoreState {
@@ -439,20 +439,48 @@ export function useMutateStore() {
     void api.recordVoice({ clientId, kind, original, final }).catch(() => {});
   }, []);
 
+  // --- Case studies -------------------------------------------------------------
+
+  const addCaseStudy = useCallback((input: { clientId: string; title: string; narrative: string; deliverableIds: string[] }) => {
+    const s = store.get();
+    const study = {
+      id: uuidv4(),
+      clientId: input.clientId,
+      title: input.title.trim() || 'Untitled case study',
+      narrative: input.narrative,
+      deliverableIds: input.deliverableIds,
+      createdAt: new Date().toISOString(),
+    };
+    store.update('caseStudies', [study, ...s.caseStudies]);
+    return study.id;
+  }, []);
+
+  const updateCaseStudy = useCallback((id: string, patch: Partial<StoreState['caseStudies'][0]>) => {
+    const s = store.get();
+    store.update('caseStudies', s.caseStudies.map(c => c.id === id ? { ...c, ...patch } : c));
+  }, []);
+
+  const deleteCaseStudy = useCallback((id: string) => {
+    const s = store.get();
+    store.update('caseStudies', s.caseStudies.filter(c => c.id !== id));
+  }, []);
+
   // --- Launch planner (Algo-Rhythm) -------------------------------------------
 
   /** Append-only activity feed entry. Powers the weekly recap and changelog. */
-  const logActivity = useCallback((summary: string, kind = 'info') => {
+  const logActivity = useCallback((summary: string, kind = 'info', ref?: { id: string; type: string }) => {
     const s = store.get();
     store.update('launchActivity', [...s.launchActivity, {
       id: uuidv4(),
       at: new Date().toISOString(),
       summary,
       kind,
+      refId: ref?.id ?? null,
+      refType: ref?.type ?? null,
     }]);
   }, []);
 
-  const addLaunchTask = useCallback((input: { title?: string; due?: string; phase?: number; owner?: string; notes?: string } = {}) => {
+  const addLaunchTask = useCallback((input: { title?: string; due?: string; phase?: number; owner?: string; notes?: string; seriesId?: string | null } = {}) => {
     const s = store.get();
     store.update('launchTasks', [...s.launchTasks, {
       id: uuidv4(),
@@ -463,6 +491,7 @@ export function useMutateStore() {
       done: false,
       createdAt: new Date().toISOString(),
       notes: input.notes ?? '',
+      seriesId: input.seriesId ?? null,
     }]);
   }, []);
 
@@ -495,14 +524,21 @@ export function useMutateStore() {
       linkedClientId: null,
     };
     store.update('launchLeads', [...s.launchLeads, lead]);
-    logActivity(`Added lead "${lead.name}"`, 'lead_added');
+    logActivity(`Added lead "${lead.name}"`, 'lead_added', { id: lead.id, type: 'lead' });
     return lead.id;
   }, [logActivity]);
 
   const updateLaunchLead = useCallback((id: string, patch: Partial<LaunchLead>) => {
     const s = store.get();
+    const lead = s.launchLeads.find(l => l.id === id);
     store.update('launchLeads', s.launchLeads.map(l => l.id === id ? { ...l, ...patch } : l));
-  }, []);
+    // Note: "next" is a free-text field synced on every keystroke, so it is
+    // deliberately NOT auto-logged here -- the caller logs it on blur instead,
+    // once the value is actually committed.
+    if (lead && patch.status && patch.status !== lead.status) {
+      logActivity(`"${lead.name}": ${lead.status} → ${patch.status}`, 'lead_status', { id: lead.id, type: 'lead' });
+    }
+  }, [logActivity]);
 
   const deleteLaunchLead = useCallback((id: string) => {
     const s = store.get();
@@ -522,7 +558,7 @@ export function useMutateStore() {
     if (client && !store.get().clients.some(c => c.id === clientId)) {
       store.update('clients', [...store.get().clients, client]);
     }
-    logActivity(`Converted "${lead?.name ?? 'a lead'}" to a Content Desk client`, 'lead_converted');
+    logActivity(`Converted "${lead?.name ?? 'a lead'}" to a Content Desk client`, 'lead_converted', lead ? { id: lead.id, type: 'lead' } : undefined);
     return clientId;
   }, [logActivity]);
 
@@ -587,6 +623,7 @@ export function useMutateStore() {
       done: false,
       createdAt: new Date().toISOString(),
       notes: '',
+      seriesId: null,
     }]);
     store.update('launchNotes', store.get().launchNotes.filter(n => n.id !== noteId));
     logActivity(`Promoted an idea to a task: "${title}"`, 'idea_promoted');
@@ -616,6 +653,70 @@ export function useMutateStore() {
   const deleteLaunchGate = useCallback((id: string) => {
     const s = store.get();
     store.update('launchGates', s.launchGates.filter(g => g.id !== id));
+  }, []);
+
+  const addRecurringLaunchTask = useCallback((input: Partial<LaunchRecurringTask> = {}) => {
+    const s = store.get();
+    store.update('launchRecurringTasks', [...s.launchRecurringTasks, {
+      id: uuidv4(),
+      title: input.title?.trim() || 'New recurring task',
+      phase: input.phase ?? 0,
+      owner: input.owner || 'Tisa',
+      frequency: input.frequency || 'weekly',
+      dayOfWeek: input.dayOfWeek ?? 1,
+      active: input.active ?? true,
+      lastGeneratedOn: null,
+    }]);
+  }, []);
+
+  const updateRecurringLaunchTask = useCallback((id: string, patch: Partial<LaunchRecurringTask>) => {
+    const s = store.get();
+    store.update('launchRecurringTasks', s.launchRecurringTasks.map(r => r.id === id ? { ...r, ...patch } : r));
+  }, []);
+
+  const deleteRecurringLaunchTask = useCallback((id: string) => {
+    const s = store.get();
+    store.update('launchRecurringTasks', s.launchRecurringTasks.filter(r => r.id !== id));
+  }, []);
+
+  /** Materializes due occurrences of active recurring rules into real
+   *  launch_tasks rows (seriesId-deduped), mirroring generateFromTemplates. */
+  const generateLaunchTasksFromRecurring = useCallback((weeksAhead = 4) => {
+    const s = store.get();
+    const now = new Date();
+    const todayKey = now.toISOString().slice(0, 10);
+    const newTasks: StoreState['launchTasks'] = [];
+    const updatedRules = s.launchRecurringTasks.map(rule => {
+      if (!rule.active) return rule;
+      let lastGeneratedOn = rule.lastGeneratedOn;
+      for (let w = 0; w < weeksAhead; w++) {
+        const occurrence = nextLaunchOccurrence(rule, now, w);
+        if (!occurrence) continue;
+        const dateKey = occurrence.toISOString().slice(0, 10);
+        if (dateKey < todayKey) continue;
+        const alreadyExists = s.launchTasks.some(t => t.seriesId === rule.id && t.due === dateKey)
+          || newTasks.some(t => t.seriesId === rule.id && t.due === dateKey);
+        if (alreadyExists) continue;
+        newTasks.push({
+          id: uuidv4(),
+          title: rule.title,
+          due: dateKey,
+          phase: rule.phase,
+          owner: rule.owner,
+          done: false,
+          createdAt: new Date().toISOString(),
+          notes: '',
+          seriesId: rule.id,
+        });
+        lastGeneratedOn = dateKey;
+      }
+      return { ...rule, lastGeneratedOn };
+    });
+    if (newTasks.length) {
+      store.update('launchTasks', [...s.launchTasks, ...newTasks]);
+      store.update('launchRecurringTasks', updatedRules);
+    }
+    return newTasks.length;
   }, []);
 
   const updateLaunchSettings = useCallback((patch: Partial<StoreState['launchSettings'][0]>) => {
@@ -652,6 +753,9 @@ export function useMutateStore() {
     deleteTemplate,
     generateFromTemplates,
     recordVoiceExample,
+    addCaseStudy,
+    updateCaseStudy,
+    deleteCaseStudy,
     addLaunchTask,
     updateLaunchTask,
     toggleLaunchTask,
@@ -670,6 +774,10 @@ export function useMutateStore() {
     deleteLaunchGate,
     updateLaunchSettings,
     logActivity,
+    addRecurringLaunchTask,
+    updateRecurringLaunchTask,
+    deleteRecurringLaunchTask,
+    generateLaunchTasksFromRecurring,
   };
 }
 
@@ -683,5 +791,17 @@ function nextOccurrence(template: Template, from: Date, weekOffset: number): Dat
   occurrence.setHours(hours || 9, minutes || 0, 0, 0);
   if (template.frequency === 'monthly' && weekOffset % 4 !== 0) return null;
   if (template.frequency === 'biweekly' && weekOffset % 2 !== 0) return null;
+  return occurrence;
+}
+
+function nextLaunchOccurrence(rule: LaunchRecurringTask, from: Date, weekOffset: number): Date | null {
+  const base = new Date(from);
+  base.setDate(base.getDate() + weekOffset * 7);
+  const delta = (rule.dayOfWeek - base.getDay() + 7) % 7;
+  const occurrence = new Date(base);
+  occurrence.setDate(base.getDate() + delta);
+  occurrence.setHours(0, 0, 0, 0);
+  if (rule.frequency === 'monthly' && weekOffset % 4 !== 0) return null;
+  if (rule.frequency === 'biweekly' && weekOffset % 2 !== 0) return null;
   return occurrence;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'wouter';
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, isToday, parseISO, startOfMonth, startOfWeek, subMonths } from 'date-fns';
-import { CalendarPlus, ChevronLeft, ChevronRight, FilePlus2, MapPin, Repeat, Scale } from 'lucide-react';
+import { CalendarPlus, ChevronLeft, ChevronRight, FilePlus2, MapPin, Repeat, Rocket, Scale } from 'lucide-react';
 import { toast } from 'sonner';
 import { DeliverableModal } from '@/components/deliverable-modal';
 import { EventModal } from '@/components/event-modal';
@@ -9,8 +10,9 @@ import { useMutateStore, useStore } from '@/hooks/use-store';
 import { cn } from '@/lib/utils';
 
 export default function CalendarPage() {
-  const { deliverables, events, clients, metrics } = useStore();
+  const { deliverables, events, clients, metrics, launchTasks } = useStore();
   const { updateDeliverable, updateEvent, generateFromTemplates } = useMutateStore();
+  const [, navigate] = useLocation();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [activeDeliverableId, setActiveDeliverableId] = useState<string | null>(null);
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
@@ -44,6 +46,7 @@ export default function CalendarPage() {
     const map: Record<string, Array<
       | { kind: 'content'; item: typeof deliverables[number] }
       | { kind: 'event'; item: typeof events[number] }
+      | { kind: 'launch'; item: typeof launchTasks[number] }
     >> = {};
     deliverables.forEach(deliverable => {
       const date = deliverable.publishAt || deliverable.productionDueAt;
@@ -55,13 +58,18 @@ export default function CalendarPage() {
       const key = format(parseISO(calendarEvent.startAt), 'yyyy-MM-dd');
       (map[key] ||= []).push({ kind: 'event', item: calendarEvent });
     });
+    // Launch tasks are read-only here — surfaced for visibility, edited on the Launch page.
+    launchTasks.forEach(task => {
+      if (task.done || !task.due) return;
+      (map[task.due] ||= []).push({ kind: 'launch', item: task });
+    });
     Object.values(map).forEach(items => items.sort((a, b) => {
-      const aDate = a.kind === 'content' ? (a.item.publishAt || a.item.productionDueAt || '') : a.item.startAt;
-      const bDate = b.kind === 'content' ? (b.item.publishAt || b.item.productionDueAt || '') : b.item.startAt;
+      const aDate = a.kind === 'content' ? (a.item.publishAt || a.item.productionDueAt || '') : a.kind === 'event' ? a.item.startAt : a.item.due;
+      const bDate = b.kind === 'content' ? (b.item.publishAt || b.item.productionDueAt || '') : b.kind === 'event' ? b.item.startAt : b.item.due;
       return aDate.localeCompare(bDate);
     }));
     return map;
-  }, [deliverables, events]);
+  }, [deliverables, events, launchTasks]);
 
   const monthHours = useMemo(() => Object.fromEntries(activeClients.map(client => {
     const hours = deliverables
@@ -253,19 +261,26 @@ export default function CalendarPage() {
                       const item = ticket.item;
                       const content = ticket.kind === 'content' ? ticket.item : undefined;
                       const calendarEvent = ticket.kind === 'event' ? ticket.item : undefined;
+                      const launchTask = ticket.kind === 'launch' ? ticket.item : undefined;
                       const client = content ? clientMap[content.clientId] : calendarEvent?.clientId ? clientMap[calendarEvent.clientId] : undefined;
                       return (
-                        <button key={`${ticket.kind}-${item.id}`} onClick={() => ticket.kind === 'content' ? setActiveDeliverableId(item.id) : setActiveEventId(item.id)} className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-secondary/40">
-                          <span className="h-9 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ticket.kind === 'event' ? '#C6A15B' : client?.color || '#555' }} />
+                        <button
+                          key={`${ticket.kind}-${item.id}`}
+                          onClick={() => ticket.kind === 'content' ? setActiveDeliverableId(item.id) : ticket.kind === 'event' ? setActiveEventId(item.id) : navigate('/launch')}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-secondary/40"
+                        >
+                          <span className="h-9 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ticket.kind === 'event' ? '#C6A15B' : ticket.kind === 'launch' ? '#d94e38' : client?.color || '#555' }} />
                           <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-1.5 truncate text-sm font-medium">{content?.seriesId && <Repeat className="h-3 w-3 shrink-0 text-muted-foreground" />}{item.title}</span>
+                            <span className="flex items-center gap-1.5 truncate text-sm font-medium">{launchTask && <Rocket className="h-3 w-3 shrink-0 text-muted-foreground" />}{content?.seriesId && <Repeat className="h-3 w-3 shrink-0 text-muted-foreground" />}{item.title}</span>
                             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                               {calendarEvent
                                 ? `${calendarEvent.eventType === 'shoot' ? 'Content shoot' : calendarEvent.eventType} · ${format(parseISO(calendarEvent.startAt), 'HH:mm')}${calendarEvent.location ? ` · ${calendarEvent.location}` : ''}`
+                                : launchTask
+                                ? `Algo-Rhythm launch · ${launchTask.owner}`
                                 : `${client?.name} · ${format(parseISO(content!.publishAt || content!.productionDueAt!), 'HH:mm')}`}
                             </span>
                           </span>
-                          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] capitalize text-muted-foreground">{ticket.kind === 'event' ? 'event' : 'content'}</span>
+                          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] capitalize text-muted-foreground">{ticket.kind}</span>
                         </button>
                       );
                     })}
@@ -301,23 +316,26 @@ export default function CalendarPage() {
                         const item = ticket.item;
                         const content = ticket.kind === 'content' ? ticket.item : undefined;
                         const calendarEvent = ticket.kind === 'event' ? ticket.item : undefined;
+                        const isLaunch = ticket.kind === 'launch';
                         const client = content ? clientMap[content.clientId] : calendarEvent?.clientId ? clientMap[calendarEvent.clientId] : undefined;
                         return (
                           <div
                             key={`${ticket.kind}-${item.id}`}
-                            onClick={() => ticket.kind === 'content' ? setActiveDeliverableId(item.id) : setActiveEventId(item.id)}
-                            draggable
-                            onDragStart={event => {
+                            onClick={() => ticket.kind === 'content' ? setActiveDeliverableId(item.id) : ticket.kind === 'event' ? setActiveEventId(item.id) : navigate('/launch')}
+                            draggable={!isLaunch}
+                            onDragStart={isLaunch ? undefined : event => {
                               const payload = JSON.stringify({ kind: ticket.kind, id: item.id });
                               event.dataTransfer.setData('application/x-content-desk-ticket', payload);
                               event.dataTransfer.setData('text/plain', payload);
                               event.dataTransfer.effectAllowed = 'move';
                             }}
-                            className={cn('flex cursor-grab items-center gap-1 truncate rounded border px-2 py-1 text-xs hover:brightness-110 active:cursor-grabbing', ticket.kind === 'event' && 'border-dashed')}
-                            style={{ backgroundColor: ticket.kind === 'event' ? '#C6A15B20' : `${client?.color || '#555'}20`, borderColor: ticket.kind === 'event' ? '#C6A15B70' : `${client?.color || '#555'}40` }}
+                            className={cn('flex items-center gap-1 truncate rounded border px-2 py-1 text-xs hover:brightness-110', ticket.kind === 'event' && 'border-dashed', isLaunch ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing')}
+                            style={{ backgroundColor: ticket.kind === 'event' ? '#C6A15B20' : isLaunch ? '#d94e3820' : `${client?.color || '#555'}20`, borderColor: ticket.kind === 'event' ? '#C6A15B70' : isLaunch ? '#d94e3870' : `${client?.color || '#555'}40` }}
                           >
                             {ticket.kind === 'event'
                               ? <CalendarPlus className="h-3 w-3 shrink-0 text-primary" />
+                              : isLaunch
+                              ? <Rocket className="h-3 w-3 shrink-0" />
                               : content?.seriesId && <Repeat className="h-3 w-3 shrink-0" />}
                             {ticket.kind === 'content' && <span className="opacity-70">{client?.name.substring(0, 2)}</span>}
                             <span className="truncate">{item.title}</span>

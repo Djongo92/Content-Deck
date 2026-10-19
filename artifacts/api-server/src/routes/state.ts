@@ -14,6 +14,11 @@ import {
   templatesTable,
   voiceExamplesTable,
   snapshotsTable,
+  launchTasksTable,
+  launchLeadsTable,
+  launchNotesTable,
+  launchGatesTable,
+  launchSettingsTable,
 } from "@workspace/db";
 import { calendarEventsTable } from "@workspace/db/schema";
 
@@ -31,12 +36,20 @@ const ENTITY_TABLES = {
   metrics: metricsTable,
   templates: templatesTable,
   voiceExamples: voiceExamplesTable,
+  launchTasks: launchTasksTable,
+  launchLeads: launchLeadsTable,
+  launchNotes: launchNotesTable,
+  launchGates: launchGatesTable,
+  launchSettings: launchSettingsTable,
 } as const;
 
 type EntityKey = keyof typeof ENTITY_TABLES;
 
 async function assembleState() {
-  const [clients, briefs, deliverables, events, versions, assets, tasks, notes, metrics, templates, voiceExamples] =
+  const [
+    clients, briefs, deliverables, events, versions, assets, tasks, notes, metrics, templates, voiceExamples,
+    launchTasks, launchLeads, launchNotes, launchGates, launchSettings,
+  ] =
     await Promise.all([
       db.select().from(clientsTable),
       db.select().from(briefsTable),
@@ -49,8 +62,16 @@ async function assembleState() {
       db.select().from(metricsTable),
       db.select().from(templatesTable),
       db.select().from(voiceExamplesTable),
+      db.select().from(launchTasksTable),
+      db.select().from(launchLeadsTable),
+      db.select().from(launchNotesTable),
+      db.select().from(launchGatesTable),
+      db.select().from(launchSettingsTable),
     ]);
-  return { clients, briefs, deliverables, events, versions, assets, tasks, notes, metrics, templates, voiceExamples };
+  return {
+    clients, briefs, deliverables, events, versions, assets, tasks, notes, metrics, templates, voiceExamples,
+    launchTasks, launchLeads, launchNotes, launchGates, launchSettings,
+  };
 }
 
 router.get("/state", async (_req: Request, res: Response) => {

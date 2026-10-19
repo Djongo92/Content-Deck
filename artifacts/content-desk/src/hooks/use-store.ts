@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { store } from '@/lib/store';
 import { api } from '@/lib/api';
-import { resolvePlatforms, SaveStatus, StoreState, Template } from '@/lib/types';
+import { DEFAULT_LAUNCH_SETTINGS, LaunchGate, LaunchLead, resolvePlatforms, SaveStatus, StoreState, Template } from '@/lib/types';
 import { uuidv4 } from '@/lib/utils';
 
 export function useStore(): StoreState {
@@ -439,6 +439,120 @@ export function useMutateStore() {
     void api.recordVoice({ clientId, kind, original, final }).catch(() => {});
   }, []);
 
+  // --- Launch planner (Algo-Rhythm) -------------------------------------------
+
+  const addLaunchTask = useCallback((input: { title?: string; due?: string; phase?: number; owner?: string } = {}) => {
+    const s = store.get();
+    store.update('launchTasks', [...s.launchTasks, {
+      id: uuidv4(),
+      title: input.title?.trim() || 'New task',
+      due: input.due || new Date().toISOString().slice(0, 10),
+      phase: input.phase ?? 0,
+      owner: input.owner || 'Tisa',
+      done: false,
+      createdAt: new Date().toISOString(),
+    }]);
+  }, []);
+
+  const updateLaunchTask = useCallback((id: string, patch: Partial<StoreState['launchTasks'][0]>) => {
+    const s = store.get();
+    store.update('launchTasks', s.launchTasks.map(t => t.id === id ? { ...t, ...patch } : t));
+  }, []);
+
+  const toggleLaunchTask = useCallback((id: string, done: boolean) => {
+    const s = store.get();
+    store.update('launchTasks', s.launchTasks.map(t => t.id === id ? { ...t, done } : t));
+  }, []);
+
+  const deleteLaunchTask = useCallback((id: string) => {
+    const s = store.get();
+    store.update('launchTasks', s.launchTasks.filter(t => t.id !== id));
+  }, []);
+
+  const addLaunchLead = useCallback((input: Partial<LaunchLead> = {}) => {
+    const s = store.get();
+    const lead: LaunchLead = {
+      id: uuidv4(),
+      name: input.name?.trim() || 'New prospect',
+      status: input.status || 'Lead',
+      fee: input.fee ?? 0,
+      hours: input.hours ?? 0,
+      next: input.next || 'Identify contact and need',
+      linkedClientId: null,
+    };
+    store.update('launchLeads', [...s.launchLeads, lead]);
+    return lead.id;
+  }, []);
+
+  const updateLaunchLead = useCallback((id: string, patch: Partial<LaunchLead>) => {
+    const s = store.get();
+    store.update('launchLeads', s.launchLeads.map(l => l.id === id ? { ...l, ...patch } : l));
+  }, []);
+
+  const deleteLaunchLead = useCallback((id: string) => {
+    const s = store.get();
+    store.update('launchLeads', s.launchLeads.filter(l => l.id !== id));
+  }, []);
+
+  /** Converts a launch lead into a real Content Desk client via the server
+   *  (the server owns creating the client row), then mirrors the result
+   *  into local state so it shows up without waiting on the next pull. */
+  const convertLaunchLead = useCallback(async (id: string) => {
+    const { clientId } = await api.launch.convertLead(id);
+    const s = store.get();
+    store.update('launchLeads', s.launchLeads.map(l => l.id === id ? { ...l, linkedClientId: clientId } : l));
+    const server = await api.getState();
+    const client = server.clients.find(c => c.id === clientId);
+    if (client && !store.get().clients.some(c => c.id === clientId)) {
+      store.update('clients', [...store.get().clients, client]);
+    }
+    return clientId;
+  }, []);
+
+  const addLaunchNote = useCallback((input: { title: string; text: string; date?: string }) => {
+    const s = store.get();
+    const note = {
+      id: uuidv4(),
+      date: input.date || new Date().toISOString().slice(0, 10),
+      title: input.title.trim(),
+      text: input.text.trim(),
+    };
+    store.update('launchNotes', [note, ...s.launchNotes]);
+    return note.id;
+  }, []);
+
+  const deleteLaunchNote = useCallback((id: string) => {
+    const s = store.get();
+    store.update('launchNotes', s.launchNotes.filter(n => n.id !== id));
+  }, []);
+
+  const addLaunchGate = useCallback((input: Partial<LaunchGate> = {}) => {
+    const s = store.get();
+    store.update('launchGates', [...s.launchGates, {
+      id: uuidv4(),
+      title: input.title?.trim() || 'New decision gate',
+      description: input.description || '',
+      done: false,
+      relatedPhase: input.relatedPhase ?? null,
+    }]);
+  }, []);
+
+  const updateLaunchGate = useCallback((id: string, patch: Partial<LaunchGate>) => {
+    const s = store.get();
+    store.update('launchGates', s.launchGates.map(g => g.id === id ? { ...g, ...patch } : g));
+  }, []);
+
+  const deleteLaunchGate = useCallback((id: string) => {
+    const s = store.get();
+    store.update('launchGates', s.launchGates.filter(g => g.id !== id));
+  }, []);
+
+  const updateLaunchSettings = useCallback((patch: Partial<StoreState['launchSettings'][0]>) => {
+    const s = store.get();
+    const current = s.launchSettings[0] ?? DEFAULT_LAUNCH_SETTINGS;
+    store.update('launchSettings', [{ ...current, ...patch, id: 'default' }]);
+  }, []);
+
   return {
     addTask,
     toggleTask,
@@ -467,6 +581,20 @@ export function useMutateStore() {
     deleteTemplate,
     generateFromTemplates,
     recordVoiceExample,
+    addLaunchTask,
+    updateLaunchTask,
+    toggleLaunchTask,
+    deleteLaunchTask,
+    addLaunchLead,
+    updateLaunchLead,
+    deleteLaunchLead,
+    convertLaunchLead,
+    addLaunchNote,
+    deleteLaunchNote,
+    addLaunchGate,
+    updateLaunchGate,
+    deleteLaunchGate,
+    updateLaunchSettings,
   };
 }
 

@@ -174,5 +174,67 @@ export const snapshotsTable = pgTable("snapshots", {
   state: jsonb("state").notNull(),
 });
 
+// --- Launch planner (Algo-Rhythm Studio Launch Companion) -------------------
+// Tisa's own business-launch plan: a separate planning surface from the
+// client-work tables above, prefixed "launch" to keep that boundary clear.
+// A launch lead becomes a real client via launchLeadsTable.linkedClientId,
+// which points at clientsTable.id once converted (loosely, like every
+// other cross-table reference in this schema -- no DB-level FK).
+
+export const launchTasksTable = pgTable("launch_tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull().default(""),
+  due: text("due").notNull().default(""),
+  phase: integer("phase").notNull().default(0),
+  owner: text("owner").notNull().default(""),
+  done: boolean("done").notNull().default(false),
+  createdAt: text("created_at").notNull().default(""),
+}, (t) => [index("launch_tasks_phase_idx").on(t.phase)]);
+
+export const launchLeadsTable = pgTable("launch_leads", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().default(""),
+  status: text("status").notNull().default("Lead"),
+  fee: real("fee").notNull().default(0),
+  hours: real("hours").notNull().default(0),
+  next: text("next").notNull().default(""),
+  linkedClientId: text("linked_client_id"),
+});
+
+export const launchNotesTable = pgTable("launch_notes", {
+  id: text("id").primaryKey(),
+  date: text("date").notNull().default(""),
+  title: text("title").notNull().default(""),
+  text: text("text").notNull().default(""),
+});
+
+// relatedPhase links a gate to a roadmap phase so the UI can show how many
+// of that phase's tasks are done alongside the manual done checkbox, rather
+// than the gate being a bare, disconnected checkbox.
+export const launchGatesTable = pgTable("launch_gates", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull().default(""),
+  description: text("description").notNull().default(""),
+  done: boolean("done").notNull().default(false),
+  relatedPhase: integer("related_phase"),
+});
+
+// Singleton: always exactly one row, id 'default'.
+export const launchSettingsTable = pgTable("launch_settings", {
+  id: text("id").primaryKey(),
+  weeklyHours: real("weekly_hours").notNull().default(20),
+  adminPercent: real("admin_percent").notNull().default(25),
+  monthlyCosts: real("monthly_costs").notNull().default(0),
+  monthlyReserve: real("monthly_reserve").notNull().default(0),
+  brandName: text("brand_name").notNull().default(""),
+  headline: text("headline").notNull().default(""),
+  proposition: text("proposition").notNull().default(""),
+  visualDirection: text("visual_direction").notNull().default(""),
+  domain: text("domain").notNull().default(""),
+  clearance: text("clearance").notNull().default("Not checked"),
+  stack: text("stack").notNull().default(""),
+  launchDate: text("launch_date").notNull().default(""),
+});
+
 export type ClientRow = typeof clientsTable.$inferSelect;
 export type DeliverableRow = typeof deliverablesTable.$inferSelect;

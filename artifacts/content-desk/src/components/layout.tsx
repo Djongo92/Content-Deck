@@ -1,7 +1,7 @@
 import { ReactNode, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, Calendar, Users, Image as ImageIcon, BarChart3, Settings, Search, Plus, X, Menu } from 'lucide-react';
+import { LayoutDashboard, Calendar, Users, Image as ImageIcon, BarChart3, Rocket, Settings, Search, Plus, X, Menu } from 'lucide-react';
 import { SettingsModal } from '@/components/settings-modal';
 import { CommandPalette, openCommandPalette, OPEN_QUICK_CAPTURE_EVENT } from '@/components/command-palette';
 import { QuickCapture } from '@/components/quick-capture';
@@ -14,6 +14,7 @@ const navItems = [
   { href: '/clients', label: 'Clients', icon: Users },
   { href: '/assets', label: 'Assets', icon: ImageIcon },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
+  { href: '/launch', label: 'Launch', icon: Rocket },
 ];
 
 function SaveDot() {
@@ -151,7 +152,7 @@ function MobileTabBar() {
   const [moreOpen, setMoreOpen] = useState(false);
   const tabs = [navItems[0], navItems[1]];
   const tabsRight = [navItems[2]];
-  const moreItems = [navItems[3], navItems[4]];
+  const moreItems = [navItems[3], navItems[4], navItems[5]];
   const moreActive = moreItems.some(item => location === item.href || location.startsWith(item.href + '/'));
 
   const tabClass = (href: string) => cn(

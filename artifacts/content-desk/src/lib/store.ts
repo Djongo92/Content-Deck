@@ -1,4 +1,4 @@
-import { SaveStatus, StoreState } from './types';
+import { DEFAULT_LAUNCH_SETTINGS, SaveStatus, StoreState } from './types';
 import { uuidv4 } from './utils';
 import { api } from './api';
 
@@ -37,6 +37,45 @@ export const DEFAULT_CLIENTS = [
     monthlyRetainerAmount: 2200,
   }
 ];
+
+const LAUNCH_SEED_RAW: [string, string, number][] = [
+  ['Write a one-page positioning statement', '2026-10-25', 0],
+  ['Document Wonder Strings scope and begin time tracking', '2026-10-25', 0],
+  ['List 20 qualified prospects and relationships', '2026-10-25', 0],
+  ['Check name, trademark, APR, domain, and handles', '2026-11-01', 0],
+  ['Set three provisional packages and prices', '2026-11-01', 0],
+  ['Collect Wonder Strings portfolio materials', '2026-11-01', 0],
+  ['Collect Belgrade Philharmonic portfolio evidence', '2026-11-01', 0],
+  ["Write Wonder Strings case study", '2026-11-15', 0],
+  ['Write founder-experience case study', '2026-11-15', 0],
+  ['Prepare one-page services PDF', '2026-12-05', 1],
+  ['Prepare proposal and scope templates', '2026-12-10', 1],
+  ['Choose website domain after clearance', '2026-12-15', 1],
+  ['Prepare 8 selective prospect introductions', '2027-01-20', 2],
+  ['Hold at least 3 discovery conversations', '2027-01-31', 2],
+  ['Draft WordPress website and page copy', '2027-01-31', 2],
+  ['Validate package prices against actual requests', '2027-01-31', 2],
+  ['Get written accountant view on classification and tax structure', '2027-02-15', 3],
+  ['Create fixed-cost and cash-reserve forecast', '2027-02-20', 3],
+  ['Create compliant contract/invoicing workflow', '2027-02-28', 3],
+  ['Complete website and inquiry process', '2027-03-15', 4],
+  ['Prepare six quality social content assets', '2027-03-20', 4],
+  ['Set up founder LinkedIn and agency Instagram presence', '2027-03-25', 4],
+  ['Test website, contacts, legal pages, and mobile layouts', '2027-03-31', 4],
+  ['Make public-launch go/no-go decision', '2027-03-31', 4],
+  ['Publish website and studio announcement', '2027-04-12', 5],
+  ['Contact selected launch network personally', '2027-04-16', 5],
+];
+
+const LAUNCH_SEED_TASKS = LAUNCH_SEED_RAW.map(([title, due, phase]) => ({
+  id: uuidv4(),
+  title,
+  due,
+  phase,
+  owner: 'Tisa',
+  done: false,
+  createdAt: new Date().toISOString(),
+}));
 
 export const SEED_DATA: StoreState = {
   clients: DEFAULT_CLIENTS,
@@ -130,6 +169,37 @@ export const SEED_DATA: StoreState = {
   notes: [],
   metrics: [],
   templates: [],
+  launchTasks: LAUNCH_SEED_TASKS,
+  launchLeads: [
+    { id: uuidv4(), name: 'Wonder Strings', status: 'Active', fee: 400, hours: 25, next: 'Track time and prepare case study', linkedClientId: null },
+  ],
+  launchNotes: [
+    {
+      id: uuidv4(),
+      date: new Date().toISOString().slice(0, 10),
+      title: 'Business baseline agreed',
+      text: 'Local-first, internationally credible. Solo studio; mixed retainers and projects; six-month public-launch horizon. Founder owns sales. Name remains provisional.',
+    },
+  ],
+  launchGates: [
+    { id: uuidv4(), title: 'Brand/name clearance', description: 'Check relevant trademarks, APR names, domains and handles before investing or publishing.', done: false, relatedPhase: 0 },
+    { id: uuidv4(), title: 'Offer validation', description: 'Confirm at least some positive willingness-to-pay evidence from real prospects.', done: false, relatedPhase: 2 },
+    { id: uuidv4(), title: 'Tax and invoicing readiness', description: 'Accountant verifies predominant activity, eligibility, likely costs, and lawful contracting route.', done: false, relatedPhase: 3 },
+    { id: uuidv4(), title: 'Public launch package', description: 'Completed site, portfolio, contact path, founder identity, and social announcement.', done: false, relatedPhase: 4 },
+  ],
+  launchSettings: [{
+    ...DEFAULT_LAUNCH_SETTINGS,
+    weeklyHours: 20,
+    adminPercent: 25,
+    monthlyCosts: 500,
+    monthlyReserve: 150,
+    brandName: 'Algo-Rhythm',
+    headline: 'Communications for the world of music.',
+    proposition: 'An independent communications studio helping musicians, ensembles, festivals, and cultural organizations connect with their audiences.',
+    visualDirection: 'Contemporary, creative, editorial. Rhythmic typography, off-white/charcoal foundation, one expressive accent; avoid musical-note clichés.',
+    stack: 'WordPress · English-first · five pages',
+    launchDate: '2027-04-12',
+  }],
 };
 
 // --- Sync machinery -----------------------------------------------------------
@@ -139,7 +209,10 @@ export const SEED_DATA: StoreState = {
 // otherwise local data is pushed up (one-time migration).
 
 type CollectionKey = keyof StoreState;
-const SYNC_KEYS: CollectionKey[] = ['clients', 'briefs', 'deliverables', 'events', 'versions', 'assets', 'tasks', 'notes', 'metrics', 'templates'];
+const SYNC_KEYS: CollectionKey[] = [
+  'clients', 'briefs', 'deliverables', 'events', 'versions', 'assets', 'tasks', 'notes', 'metrics', 'templates',
+  'launchTasks', 'launchLeads', 'launchNotes', 'launchGates', 'launchSettings',
+];
 
 let storeState: StoreState | null = null;
 let subscribers: (() => void)[] = [];
@@ -221,6 +294,11 @@ function normalize(state: Partial<StoreState> | null | undefined): StoreState {
     notes: (s.notes ?? []).map(n => ({ ...n, title: n.title ?? '', url: n.url ?? '', kind: n.kind ?? ('idea' as const) })),
     metrics: s.metrics ?? [],
     templates: s.templates ?? [],
+    launchTasks: s.launchTasks ?? [],
+    launchLeads: (s.launchLeads ?? []).map(l => ({ ...l, linkedClientId: l.linkedClientId ?? null })),
+    launchNotes: s.launchNotes ?? [],
+    launchGates: (s.launchGates ?? []).map(g => ({ ...g, relatedPhase: g.relatedPhase ?? null })),
+    launchSettings: s.launchSettings?.length ? s.launchSettings.map(ls => ({ ...DEFAULT_LAUNCH_SETTINGS, ...ls })) : [DEFAULT_LAUNCH_SETTINGS],
   };
 }
 

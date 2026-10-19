@@ -68,6 +68,14 @@ export const api = {
     req<{ uploadURL: string; objectPath: string }>('/api/storage/uploads/request-url', {
       method: 'POST', body: JSON.stringify(meta),
     }),
+
+  launch: {
+    discuss: (question: string, history: { role: 'user' | 'assistant'; content: string }[]) =>
+      req<{ result: string }>('/api/launch/discuss', { method: 'POST', body: JSON.stringify({ question, history }) }),
+
+    convertLead: (id: string) =>
+      req<{ clientId: string }>(`/api/launch/leads/${encodeURIComponent(id)}/convert`, { method: 'POST', body: '{}' }),
+  },
 };
 
 export type { Template };

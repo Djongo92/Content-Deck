@@ -11,6 +11,7 @@ import CalendarPage from '@/pages/calendar';
 import ClientsPage from '@/pages/clients';
 import AssetsPage from '@/pages/assets';
 import ReportsPage from '@/pages/reports';
+import LaunchPage from '@/pages/launch';
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
           <Route path="/clients" component={ClientsPage} />
           <Route path="/assets" component={AssetsPage} />
           <Route path="/reports" component={ReportsPage} />
+          <Route path="/launch" component={LaunchPage} />
           <Route component={NotFound} />
         </Switch>
       </RoutedErrorBoundary>

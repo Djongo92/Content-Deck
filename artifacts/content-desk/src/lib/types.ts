@@ -157,6 +157,86 @@ export type ReviewLink = {
   path: string;
 };
 
+// --- Launch planner (Algo-Rhythm Studio Launch Companion) -------------------
+
+export const LAUNCH_PHASE_LABELS = [
+  'Foundation',
+  'Commercial assets',
+  'Market validation',
+  'Legal & operational',
+  'Launch prep',
+  'Public launch',
+] as const;
+
+export type LaunchTask = {
+  id: string;
+  title: string;
+  due: string;
+  phase: number;
+  owner: string;
+  done: boolean;
+  createdAt: string;
+};
+
+export type LaunchLeadStatus = 'Lead' | 'Contacted' | 'Proposal' | 'Active' | 'Paused' | 'Closed';
+
+export type LaunchLead = {
+  id: string;
+  name: string;
+  status: LaunchLeadStatus;
+  fee: number;
+  hours: number;
+  next: string;
+  linkedClientId: string | null;
+};
+
+export type LaunchNote = {
+  id: string;
+  date: string;
+  title: string;
+  text: string;
+};
+
+export type LaunchGate = {
+  id: string;
+  title: string;
+  description: string;
+  done: boolean;
+  relatedPhase: number | null;
+};
+
+export type LaunchSettings = {
+  id: string;
+  weeklyHours: number;
+  adminPercent: number;
+  monthlyCosts: number;
+  monthlyReserve: number;
+  brandName: string;
+  headline: string;
+  proposition: string;
+  visualDirection: string;
+  domain: string;
+  clearance: string;
+  stack: string;
+  launchDate: string;
+};
+
+export const DEFAULT_LAUNCH_SETTINGS: LaunchSettings = {
+  id: 'default',
+  weeklyHours: 20,
+  adminPercent: 25,
+  monthlyCosts: 0,
+  monthlyReserve: 0,
+  brandName: '',
+  headline: '',
+  proposition: '',
+  visualDirection: '',
+  domain: '',
+  clearance: 'Not checked',
+  stack: '',
+  launchDate: '',
+};
+
 export type StoreState = {
   clients: Client[];
   briefs: Brief[];
@@ -168,6 +248,11 @@ export type StoreState = {
   notes: Note[];
   metrics: Metric[];
   templates: Template[];
+  launchTasks: LaunchTask[];
+  launchLeads: LaunchLead[];
+  launchNotes: LaunchNote[];
+  launchGates: LaunchGate[];
+  launchSettings: LaunchSettings[];
 };
 
 export type SaveStatus = 'saved' | 'saving' | 'offline' | 'loading';

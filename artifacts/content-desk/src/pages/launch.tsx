@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
-import { Sparkles, X, ExternalLink, CheckCircle2, Send, Loader2 } from 'lucide-react';
+import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, Send, Loader2 } from 'lucide-react';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api } from '@/lib/api';
-import { LAUNCH_PHASE_LABELS, LaunchLeadStatus } from '@/lib/types';
+import { LAUNCH_PHASE_LABELS, LaunchLeadStatus, LaunchTask } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const LEAD_STATUSES: LaunchLeadStatus[] = ['Lead', 'Contacted', 'Proposal', 'Active', 'Paused', 'Closed'];
@@ -140,53 +140,134 @@ function Metric({ label, value, sub, children }: { label: string; value: string;
 
 // --- Roadmap -------------------------------------------------------------------
 
+function phaseDateRange(tasks: LaunchTask[]): string {
+  const dues = tasks.map(t => t.due).filter(Boolean).sort();
+  if (!dues.length) return 'No dates set';
+  const fmt = (d: string) => {
+    const dt = new Date(d + 'T00:00:00');
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  const start = dues[0], end = dues[dues.length - 1];
+  return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`;
+}
+
+function PhaseStepper({ launchTasks }: { launchTasks: LaunchTask[] }) {
+  const currentPhase = LAUNCH_PHASE_LABELS.findIndex((_, p) => launchTasks.some(t => t.phase === p && !t.done));
+  const resolvedCurrent = currentPhase === -1 ? LAUNCH_PHASE_LABELS.length - 1 : currentPhase;
+
+  return (
+    <div className="flex items-start gap-0 overflow-x-auto pb-1">
+      {LAUNCH_PHASE_LABELS.map((label, p) => {
+        const tasks = launchTasks.filter(t => t.phase === p);
+        const done = tasks.filter(t => t.done).length;
+        const complete = tasks.length > 0 && done === tasks.length;
+        const isCurrent = p === resolvedCurrent && !complete;
+        return (
+          <div key={p} className="flex-1 min-w-[128px] flex flex-col items-center text-center px-1">
+            <div className="flex w-full items-center">
+              <div className={cn('h-px flex-1', p === 0 ? 'opacity-0' : complete || p < resolvedCurrent ? 'bg-primary' : 'bg-border')} />
+              <div className={cn(
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold',
+                complete ? 'border-primary bg-primary text-primary-foreground'
+                  : isCurrent ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground'
+              )}>
+                {complete ? <Check className="w-4 h-4" /> : p + 1}
+              </div>
+              <div className={cn('h-px flex-1', p === LAUNCH_PHASE_LABELS.length - 1 ? 'opacity-0' : complete ? 'bg-primary' : 'bg-border')} />
+            </div>
+            <p className={cn('mt-2 text-xs font-semibold leading-tight', isCurrent && 'text-primary')}>{label}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{phaseDateRange(tasks)}</p>
+            <p className="text-[11px] text-muted-foreground">{done}/{tasks.length} done</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function RoadmapTab() {
   const { launchTasks, launchGates } = useStore();
   const { addLaunchTask, updateLaunchTask, toggleLaunchTask, deleteLaunchTask, updateLaunchGate } = useMutateStore();
+  const [dragOverPhase, setDragOverPhase] = useState<number | null>(null);
 
   const doneCount = launchTasks.filter(t => t.done).length;
   const progress = launchTasks.length ? Math.round((100 * doneCount) / launchTasks.length) : 0;
 
+  function handleDrop(e: React.DragEvent, phase: number) {
+    e.preventDefault();
+    setDragOverPhase(null);
+    const id = e.dataTransfer.getData('text/plain');
+    if (id) updateLaunchTask(id, { phase });
+  }
+
   return (
     <div className="space-y-6">
       <div className="bg-card border border-border rounded-xl p-5">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xl font-serif">Execution board</h2>
-          <button onClick={() => addLaunchTask({})} className="text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md">+ Add task</button>
-        </div>
-        <div className="h-2 rounded-full bg-secondary overflow-hidden"><div className="h-full bg-primary" style={{ width: `${progress}%` }} /></div>
-        <p className="text-xs text-muted-foreground mt-1.5 mb-4">{doneCount} of {launchTasks.length} complete</p>
+        <h2 className="text-xl font-serif mb-1">Where things stand</h2>
+        <div className="h-2 rounded-full bg-secondary overflow-hidden mb-4"><div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} /></div>
+        <PhaseStepper launchTasks={launchTasks} />
+      </div>
 
-        {LAUNCH_PHASE_LABELS.map((label, phase) => {
-          const phaseTasks = launchTasks.filter(t => t.phase === phase);
-          const phaseDone = phaseTasks.filter(t => t.done).length;
-          return (
-            <div key={phase} className="mb-5">
-              <h3 className="flex justify-between gap-3 text-sm font-semibold mb-1.5">
-                {label}
-                <span className="text-xs text-muted-foreground font-normal">{phaseDone}/{phaseTasks.length}</span>
-              </h3>
-              {phaseTasks.length === 0 && <p className="text-xs text-muted-foreground py-2">No tasks yet</p>}
-              {phaseTasks.map(t => (
-                <div key={t.id} className="grid grid-cols-[20px_1fr_120px_auto] items-center gap-2.5 border-t border-border/50 py-2">
-                  <input type="checkbox" checked={t.done} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-4 h-4" />
-                  <input
-                    value={t.title}
-                    onChange={e => updateLaunchTask(t.id, { title: e.target.value })}
-                    className={cn('bg-transparent text-sm font-medium rounded px-1.5 py-1 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none min-w-0', t.done && 'line-through text-muted-foreground')}
-                  />
-                  <input
-                    type="date"
-                    value={t.due}
-                    onChange={e => updateLaunchTask(t.id, { due: e.target.value })}
-                    className="bg-transparent text-xs rounded px-1.5 py-1 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none min-w-0"
-                  />
-                  <button onClick={() => deleteLaunchTask(t.id)} className="text-xs text-destructive hover:underline px-1">Remove</button>
+      <div className="bg-card border border-border rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-serif">Execution board</h2>
+          <p className="text-xs text-muted-foreground">{doneCount} of {launchTasks.length} complete · drag a card to move it between phases</p>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+          {LAUNCH_PHASE_LABELS.map((label, phase) => {
+            const phaseTasks = launchTasks.filter(t => t.phase === phase);
+            const phaseDone = phaseTasks.filter(t => t.done).length;
+            return (
+              <div
+                key={phase}
+                onDragOver={e => { e.preventDefault(); setDragOverPhase(phase); }}
+                onDragLeave={() => setDragOverPhase(current => current === phase ? null : current)}
+                onDrop={e => handleDrop(e, phase)}
+                className={cn(
+                  'flex w-[230px] shrink-0 flex-col rounded-lg border bg-secondary/20 transition-colors',
+                  dragOverPhase === phase ? 'border-primary bg-primary/5' : 'border-border/60'
+                )}
+              >
+                <div className="px-3 pt-3 pb-2 border-b border-border/50">
+                  <h3 className="text-sm font-semibold leading-tight">{label}</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{phaseDone}/{phaseTasks.length} done</p>
                 </div>
-              ))}
-            </div>
-          );
-        })}
+                <div className="flex-1 space-y-2 p-2 min-h-[60px]">
+                  {phaseTasks.map(t => (
+                    <div
+                      key={t.id}
+                      draggable
+                      onDragStart={e => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move'; }}
+                      className="group rounded-md border border-border bg-card p-2 cursor-grab active:cursor-grabbing"
+                    >
+                      <div className="flex items-start gap-1.5">
+                        <input type="checkbox" checked={t.done} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <input
+                          value={t.title}
+                          onChange={e => updateLaunchTask(t.id, { title: e.target.value })}
+                          className={cn('flex-1 min-w-0 bg-transparent text-xs font-medium rounded px-1 py-0.5 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none', t.done && 'line-through text-muted-foreground')}
+                        />
+                        <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100" />
+                      </div>
+                      <div className="flex items-center justify-between mt-1 pl-5">
+                        <input
+                          type="date"
+                          value={t.due}
+                          onChange={e => updateLaunchTask(t.id, { due: e.target.value })}
+                          className="bg-transparent text-[11px] text-muted-foreground rounded px-1 py-0.5 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none min-w-0"
+                        />
+                        <button onClick={() => deleteLaunchTask(t.id)} className="text-[11px] text-destructive opacity-0 group-hover:opacity-100 hover:underline px-1">Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                  {phaseTasks.length === 0 && <p className="text-[11px] text-muted-foreground px-1 py-2">Drop a task here</p>}
+                </div>
+                <button onClick={() => addLaunchTask({ phase })} className="text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 px-3 py-2 text-left border-t border-border/50">+ Add task</button>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="bg-card border border-border rounded-xl p-5">

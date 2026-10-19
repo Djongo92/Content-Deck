@@ -75,6 +75,7 @@ const LAUNCH_SEED_TASKS = LAUNCH_SEED_RAW.map(([title, due, phase]) => ({
   owner: 'Tisa',
   done: false,
   createdAt: new Date().toISOString(),
+  notes: '',
 }));
 
 export const SEED_DATA: StoreState = {
@@ -298,7 +299,7 @@ function normalize(state: Partial<StoreState> | null | undefined): StoreState {
     notes: (s.notes ?? []).map(n => ({ ...n, title: n.title ?? '', url: n.url ?? '', kind: n.kind ?? ('idea' as const) })),
     metrics: s.metrics ?? [],
     templates: s.templates ?? [],
-    launchTasks: s.launchTasks ?? [],
+    launchTasks: (s.launchTasks ?? []).map(t => ({ ...t, notes: t.notes ?? '' })),
     launchLeads: (s.launchLeads ?? []).map(l => ({ ...l, linkedClientId: l.linkedClientId ?? null })),
     launchNotes: (s.launchNotes ?? []).map(n => ({ ...n, kind: n.kind ?? 'journal', x: n.x ?? null, y: n.y ?? null, color: n.color ?? null })),
     launchGates: (s.launchGates ?? []).map(g => ({ ...g, relatedPhase: g.relatedPhase ?? null })),

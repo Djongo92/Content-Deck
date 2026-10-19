@@ -189,6 +189,7 @@ export const launchTasksTable = pgTable("launch_tasks", {
   owner: text("owner").notNull().default(""),
   done: boolean("done").notNull().default(false),
   createdAt: text("created_at").notNull().default(""),
+  notes: text("notes").notNull().default(""),
 }, (t) => [index("launch_tasks_phase_idx").on(t.phase)]);
 
 export const launchLeadsTable = pgTable("launch_leads", {

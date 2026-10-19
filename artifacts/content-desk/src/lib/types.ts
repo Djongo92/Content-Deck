@@ -176,6 +176,7 @@ export type LaunchTask = {
   owner: string;
   done: boolean;
   createdAt: string;
+  notes: string;
 };
 
 export type LaunchLeadStatus = 'Lead' | 'Contacted' | 'Proposal' | 'Active' | 'Paused' | 'Closed';

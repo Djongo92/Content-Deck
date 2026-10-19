@@ -441,7 +441,7 @@ export function useMutateStore() {
 
   // --- Launch planner (Algo-Rhythm) -------------------------------------------
 
-  const addLaunchTask = useCallback((input: { title?: string; due?: string; phase?: number; owner?: string } = {}) => {
+  const addLaunchTask = useCallback((input: { title?: string; due?: string; phase?: number; owner?: string; notes?: string } = {}) => {
     const s = store.get();
     store.update('launchTasks', [...s.launchTasks, {
       id: uuidv4(),
@@ -451,6 +451,7 @@ export function useMutateStore() {
       owner: input.owner || 'Tisa',
       done: false,
       createdAt: new Date().toISOString(),
+      notes: input.notes ?? '',
     }]);
   }, []);
 
@@ -565,6 +566,7 @@ export function useMutateStore() {
       owner: 'Tisa',
       done: false,
       createdAt: new Date().toISOString(),
+      notes: '',
     }]);
     store.update('launchNotes', store.get().launchNotes.filter(n => n.id !== noteId));
   }, []);

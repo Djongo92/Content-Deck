@@ -6,7 +6,7 @@ import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, Send, Loa
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api } from '@/lib/api';
-import { LAUNCH_PHASE_LABELS, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchTask, STICKY_COLORS } from '@/lib/types';
+import { LAUNCH_PHASE_LABELS, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchTask, STICKY_COLORS } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const LEAD_STATUSES: LaunchLeadStatus[] = ['Lead', 'Contacted', 'Proposal', 'Active', 'Paused', 'Closed'];
@@ -18,9 +18,11 @@ function fmtEUR(n: number): string {
 const TABS = ['Overview', 'Roadmap', 'Clients & Finances', 'Brand & Settings', 'Notes', 'Memo'] as const;
 type Tab = typeof TABS[number];
 
+type DiscussContext = { type: 'general' } | { type: 'task'; task: LaunchTask } | { type: 'gate'; gate: LaunchGate };
+
 export default function LaunchPage() {
   const [tab, setTab] = useState<Tab>('Overview');
-  const [discussOpen, setDiscussOpen] = useState(false);
+  const [discussContext, setDiscussContext] = useState<DiscussContext | null>(null);
 
   return (
     <div className="flex-1 overflow-y-auto p-8 max-w-6xl mx-auto w-full">
@@ -30,7 +32,7 @@ export default function LaunchPage() {
           <p className="text-sm text-muted-foreground mt-1">Planning workspace for Tisa's studio launch and ongoing operation</p>
         </div>
         <button
-          onClick={() => setDiscussOpen(true)}
+          onClick={() => setDiscussContext({ type: 'general' })}
           className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm shadow-sm hover:brightness-110 transition-all"
         >
           <Sparkles className="w-4 h-4" /> Discuss the plan
@@ -52,24 +54,26 @@ export default function LaunchPage() {
         ))}
       </div>
 
-      {tab === 'Overview' && <OverviewTab onOpenRoadmap={() => setTab('Roadmap')} />}
-      {tab === 'Roadmap' && <RoadmapTab />}
+      {tab === 'Overview' && <OverviewTab onOpenRoadmap={() => setTab('Roadmap')} onDiscuss={setDiscussContext} />}
+      {tab === 'Roadmap' && <RoadmapTab onDiscuss={setDiscussContext} />}
       {tab === 'Clients & Finances' && <ClientsFinancesTab />}
       {tab === 'Brand & Settings' && <BrandSettingsTab />}
       {tab === 'Notes' && <NotesTab />}
       {tab === 'Memo' && <MemoTab />}
 
-      {discussOpen && <DiscussPanel onClose={() => setDiscussOpen(false)} />}
+      {discussContext && <DiscussPanel key={discussContext.type === 'general' ? 'general' : discussContext.type === 'task' ? `task-${discussContext.task.id}` : `gate-${discussContext.gate.id}`} context={discussContext} onClose={() => setDiscussContext(null)} />}
     </div>
   );
 }
 
 // --- Overview ----------------------------------------------------------------
 
-function OverviewTab({ onOpenRoadmap }: { onOpenRoadmap: () => void }) {
+function OverviewTab({ onOpenRoadmap, onDiscuss }: { onOpenRoadmap: () => void; onDiscuss: (ctx: DiscussContext) => void }) {
   const { launchTasks, launchLeads, launchSettings } = useStore();
   const { toggleLaunchTask } = useMutateStore();
   const settings = launchSettings[0];
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const openTask = launchTasks.find(t => t.id === openTaskId) ?? null;
 
   const doneCount = launchTasks.filter(t => t.done).length;
   const progress = launchTasks.length ? Math.round((100 * doneCount) / launchTasks.length) : 0;
@@ -98,15 +102,17 @@ function OverviewTab({ onOpenRoadmap }: { onOpenRoadmap: () => void }) {
         <div className="space-y-0">
           {nextTasks.length === 0 && <p className="text-sm text-muted-foreground py-4">All tracked tasks are complete.</p>}
           {nextTasks.map(t => (
-            <label key={t.id} className="flex items-center gap-3 border-t border-border/50 py-2.5 first:border-t-0 cursor-pointer">
-              <input type="checkbox" checked={t.done} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-4 h-4" />
+            <div key={t.id} onClick={() => setOpenTaskId(t.id)} className="flex items-center gap-3 border-t border-border/50 py-2.5 first:border-t-0 cursor-pointer hover:bg-secondary/30 -mx-1 px-1 rounded">
+              <input type="checkbox" checked={t.done} onClick={e => e.stopPropagation()} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-4 h-4" />
               <span className="flex-1 text-sm font-medium">{t.title}</span>
               <span className="text-xs text-muted-foreground">{t.due}</span>
               <span className="text-[11px] rounded-full bg-secondary px-2 py-0.5">{LAUNCH_PHASE_LABELS[t.phase] ?? '—'}</span>
-            </label>
+            </div>
           ))}
         </div>
       </div>
+
+      {openTask && <TaskModal task={openTask} onClose={() => setOpenTaskId(null)} onDiscuss={task => { setOpenTaskId(null); onDiscuss({ type: 'task', task }); }} />}
 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-card border border-border rounded-xl p-5">
@@ -136,6 +142,157 @@ function Metric({ label, value, sub, children }: { label: string; value: string;
       <p className="text-2xl font-medium tracking-tight">{value}</p>
       {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
       {children}
+    </div>
+  );
+}
+
+// --- Shared detail modals (opened from the kanban board, gates list, or Overview) ---
+
+function TaskModal({ task, onClose, onDiscuss }: { task: LaunchTask; onClose: () => void; onDiscuss: (task: LaunchTask) => void }) {
+  const { updateLaunchTask, toggleLaunchTask, deleteLaunchTask } = useMutateStore();
+
+  function handleDelete() {
+    if (confirm('Delete this task?')) {
+      deleteLaunchTask(task.id);
+      onClose();
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-xl max-h-[85vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <input type="checkbox" checked={task.done} onChange={e => toggleLaunchTask(task.id, e.target.checked)} className="accent-primary w-4 h-4 shrink-0" />
+            <input
+              value={task.title}
+              onChange={e => updateLaunchTask(task.id, { title: e.target.value })}
+              className={cn('flex-1 min-w-0 bg-transparent font-serif text-xl outline-none border-b border-transparent focus:border-primary pb-0.5', task.done && 'line-through text-muted-foreground')}
+            />
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <Field label="Due date">
+            <input type="date" value={task.due} onChange={e => updateLaunchTask(task.id, { due: e.target.value })} className="w-full bg-secondary border border-border rounded-md p-2 text-sm" />
+          </Field>
+          <Field label="Owner">
+            <input value={task.owner} onChange={e => updateLaunchTask(task.id, { owner: e.target.value })} className="w-full bg-secondary border border-border rounded-md p-2 text-sm" />
+          </Field>
+          <Field label="Phase">
+            <select value={task.phase} onChange={e => updateLaunchTask(task.id, { phase: Number(e.target.value) })} className="w-full bg-secondary border border-border rounded-md p-2 text-sm">
+              {LAUNCH_PHASE_LABELS.map((label, p) => <option key={p} value={p}>{label}</option>)}
+            </select>
+          </Field>
+          <Field label="Status">
+            <span className={cn('inline-flex items-center text-xs font-medium rounded-full px-2.5 py-1.5', task.done ? 'bg-emerald-500/15 text-emerald-600' : 'bg-secondary text-muted-foreground')}>
+              {task.done ? 'Done' : 'Open'}
+            </span>
+          </Field>
+        </div>
+
+        <Field label="Notes">
+          <textarea
+            value={task.notes}
+            onChange={e => updateLaunchTask(task.id, { notes: e.target.value })}
+            placeholder="Extra detail, context, links…"
+            className="w-full bg-secondary border border-border rounded-md p-2 text-sm min-h-[120px]"
+          />
+        </Field>
+
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+          <button onClick={handleDelete} className="text-xs text-destructive hover:underline">Delete task</button>
+          <button onClick={() => onDiscuss(task)} className="flex items-center gap-1.5 text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md">
+            <Sparkles className="w-3.5 h-3.5" /> Discuss this task
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GateModal({
+  gate, launchTasks, onClose, onDiscuss,
+}: {
+  gate: LaunchGate;
+  launchTasks: LaunchTask[];
+  onClose: () => void;
+  onDiscuss: (gate: LaunchGate) => void;
+}) {
+  const { updateLaunchGate, deleteLaunchGate, toggleLaunchTask } = useMutateStore();
+  const phaseTasks = gate.relatedPhase != null ? launchTasks.filter(t => t.phase === gate.relatedPhase) : [];
+  const phaseDone = phaseTasks.filter(t => t.done).length;
+
+  function handleDelete() {
+    if (confirm('Delete this decision gate?')) {
+      deleteLaunchGate(gate.id);
+      onClose();
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-xl max-h-[85vh] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <input type="checkbox" checked={gate.done} onChange={e => updateLaunchGate(gate.id, { done: e.target.checked })} className="accent-primary w-4 h-4 shrink-0" />
+            <input
+              value={gate.title}
+              onChange={e => updateLaunchGate(gate.id, { title: e.target.value })}
+              className={cn('flex-1 min-w-0 bg-transparent font-serif text-xl outline-none border-b border-transparent focus:border-primary pb-0.5', gate.done && 'line-through text-muted-foreground')}
+            />
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0"><X className="h-5 w-5" /></button>
+        </div>
+
+        <Field label="Description">
+          <textarea
+            value={gate.description}
+            onChange={e => updateLaunchGate(gate.id, { description: e.target.value })}
+            className="w-full bg-secondary border border-border rounded-md p-2 text-sm min-h-[80px]"
+          />
+        </Field>
+
+        <Field label="Related phase">
+          <select
+            value={gate.relatedPhase ?? ''}
+            onChange={e => updateLaunchGate(gate.id, { relatedPhase: e.target.value === '' ? null : Number(e.target.value) })}
+            className="w-full bg-secondary border border-border rounded-md p-2 text-sm"
+          >
+            <option value="">None</option>
+            {LAUNCH_PHASE_LABELS.map((label, p) => <option key={p} value={p}>{label}</option>)}
+          </select>
+        </Field>
+
+        {gate.relatedPhase != null && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground">{LAUNCH_PHASE_LABELS[gate.relatedPhase]} tasks</p>
+              <p className="text-xs text-muted-foreground">{phaseDone}/{phaseTasks.length} done</p>
+            </div>
+            <div className="h-1.5 rounded-full bg-secondary overflow-hidden mb-2">
+              <div className="h-full bg-primary" style={{ width: `${phaseTasks.length ? (100 * phaseDone) / phaseTasks.length : 0}%` }} />
+            </div>
+            <div className="space-y-1 max-h-[160px] overflow-y-auto">
+              {phaseTasks.map(t => (
+                <label key={t.id} className="flex items-center gap-2 text-sm py-1 cursor-pointer">
+                  <input type="checkbox" checked={t.done} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-3.5 h-3.5" />
+                  <span className={cn(t.done && 'line-through text-muted-foreground')}>{t.title}</span>
+                </label>
+              ))}
+              {phaseTasks.length === 0 && <p className="text-xs text-muted-foreground">No tasks in this phase yet.</p>}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+          <button onClick={handleDelete} className="text-xs text-destructive hover:underline">Delete milestone</button>
+          <button onClick={() => onDiscuss(gate)} className="flex items-center gap-1.5 text-xs font-medium bg-primary text-primary-foreground px-3 py-1.5 rounded-md">
+            <Sparkles className="w-3.5 h-3.5" /> Discuss this milestone
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -232,10 +389,14 @@ function WeeklyLoadHeatmap({ launchTasks }: { launchTasks: LaunchTask[] }) {
   );
 }
 
-function RoadmapTab() {
+function RoadmapTab({ onDiscuss }: { onDiscuss: (ctx: DiscussContext) => void }) {
   const { launchTasks, launchGates } = useStore();
-  const { addLaunchTask, updateLaunchTask, toggleLaunchTask, deleteLaunchTask, updateLaunchGate } = useMutateStore();
+  const { addLaunchTask, updateLaunchTask, toggleLaunchTask, updateLaunchGate } = useMutateStore();
   const [dragOverPhase, setDragOverPhase] = useState<number | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [openGateId, setOpenGateId] = useState<string | null>(null);
+  const openTask = launchTasks.find(t => t.id === openTaskId) ?? null;
+  const openGate = launchGates.find(g => g.id === openGateId) ?? null;
 
   const doneCount = launchTasks.filter(t => t.done).length;
   const progress = launchTasks.length ? Math.round((100 * doneCount) / launchTasks.length) : 0;
@@ -260,7 +421,7 @@ function RoadmapTab() {
       <div className="bg-card border border-border rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-xl font-serif">Execution board</h2>
-          <p className="text-xs text-muted-foreground">{doneCount} of {launchTasks.length} complete · drag a card to move it between phases</p>
+          <p className="text-xs text-muted-foreground">{doneCount} of {launchTasks.length} complete · drag a card to move it, click to open it</p>
         </div>
         <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
           {LAUNCH_PHASE_LABELS.map((label, phase) => {
@@ -287,25 +448,17 @@ function RoadmapTab() {
                       key={t.id}
                       draggable
                       onDragStart={e => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move'; }}
-                      className="group rounded-md border border-border bg-card p-2 cursor-grab active:cursor-grabbing"
+                      onClick={() => setOpenTaskId(t.id)}
+                      className="group rounded-md border border-border bg-card p-2 cursor-pointer hover:border-primary/50 active:cursor-grabbing"
                     >
                       <div className="flex items-start gap-1.5">
-                        <input type="checkbox" checked={t.done} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-3.5 h-3.5 mt-0.5 shrink-0" />
-                        <input
-                          value={t.title}
-                          onChange={e => updateLaunchTask(t.id, { title: e.target.value })}
-                          className={cn('flex-1 min-w-0 bg-transparent text-xs font-medium rounded px-1 py-0.5 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none', t.done && 'line-through text-muted-foreground')}
-                        />
+                        <input type="checkbox" checked={t.done} onClick={e => e.stopPropagation()} onChange={e => toggleLaunchTask(t.id, e.target.checked)} className="accent-primary w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span className={cn('flex-1 min-w-0 text-xs font-medium leading-snug', t.done && 'line-through text-muted-foreground')}>{t.title}</span>
                         <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100" />
                       </div>
-                      <div className="flex items-center justify-between mt-1 pl-5">
-                        <input
-                          type="date"
-                          value={t.due}
-                          onChange={e => updateLaunchTask(t.id, { due: e.target.value })}
-                          className="bg-transparent text-[11px] text-muted-foreground rounded px-1 py-0.5 border border-transparent hover:border-border focus:border-primary focus:bg-secondary outline-none min-w-0"
-                        />
-                        <button onClick={() => deleteLaunchTask(t.id)} className="text-[11px] text-destructive opacity-0 group-hover:opacity-100 hover:underline px-1">Remove</button>
+                      <div className="flex items-center justify-between mt-1.5 pl-5">
+                        <span className="text-[11px] text-muted-foreground">{t.due || 'No date'}</span>
+                        <span className="text-[10px] rounded-full bg-secondary px-1.5 py-0.5 text-muted-foreground">{t.owner}</span>
                       </div>
                     </div>
                   ))}
@@ -326,9 +479,9 @@ function RoadmapTab() {
             const phaseDone = phaseTasks.filter(t => t.done).length;
             const ready = g.relatedPhase != null && phaseTasks.length > 0 && phaseDone === phaseTasks.length;
             return (
-              <div key={g.id} className="grid grid-cols-[20px_1fr] gap-3 border-t border-border/50 py-3 first:border-t-0">
-                <input type="checkbox" checked={g.done} onChange={e => updateLaunchGate(g.id, { done: e.target.checked })} className="accent-primary w-4 h-4 mt-0.5" />
-                <div>
+              <div key={g.id} onClick={() => setOpenGateId(g.id)} className="grid grid-cols-[20px_1fr] gap-3 border-t border-border/50 py-3 first:border-t-0 cursor-pointer hover:bg-secondary/30 -mx-1 px-1 rounded">
+                <input type="checkbox" checked={g.done} onClick={e => e.stopPropagation()} onChange={e => updateLaunchGate(g.id, { done: e.target.checked })} className="accent-primary w-4 h-4 mt-0.5" />
+                <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">{g.title}</span>
                     {g.relatedPhase != null && (
@@ -338,7 +491,7 @@ function RoadmapTab() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{g.description}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{g.description}</p>
                 </div>
               </div>
             );
@@ -348,6 +501,9 @@ function RoadmapTab() {
           The public launch and business registration are separate decisions. Commercial engagements need compliant contracting and invoicing when required, regardless of launch timing.
         </div>
       </div>
+
+      {openTask && <TaskModal task={openTask} onClose={() => setOpenTaskId(null)} onDiscuss={task => { setOpenTaskId(null); onDiscuss({ type: 'task', task }); }} />}
+      {openGate && <GateModal gate={openGate} launchTasks={launchTasks} onClose={() => setOpenGateId(null)} onDiscuss={gate => { setOpenGateId(null); onDiscuss({ type: 'gate', gate }); }} />}
     </div>
   );
 }
@@ -877,10 +1033,28 @@ function MemoTab() {
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-function DiscussPanel({ onClose }: { onClose: () => void }) {
+function discussStarter(context: DiscussContext): string {
+  if (context.type === 'task') {
+    const phase = LAUNCH_PHASE_LABELS[context.task.phase] ?? 'unphased';
+    return `Let's talk about the task "${context.task.title}" (due ${context.task.due || 'no date set'}, phase: ${phase}, owner: ${context.task.owner}, status: ${context.task.done ? 'done' : 'open'}). `;
+  }
+  if (context.type === 'gate') {
+    return `Let's talk about the milestone "${context.gate.title}". `;
+  }
+  return '';
+}
+
+function discussLabel(context: DiscussContext): string | null {
+  if (context.type === 'task') return `Task: ${context.task.title}`;
+  if (context.type === 'gate') return `Milestone: ${context.gate.title}`;
+  return null;
+}
+
+function DiscussPanel({ context, onClose }: { context: DiscussContext; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(discussStarter(context));
   const [loading, setLoading] = useState(false);
+  const label = discussLabel(context);
 
   async function send() {
     const question = input.trim();
@@ -912,9 +1086,19 @@ function DiscussPanel({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
         </div>
 
+        {label && (
+          <div className="px-4 pt-3">
+            <span className="inline-flex items-center text-[11px] font-medium rounded-full bg-primary/10 text-primary px-2.5 py-1">{label}</span>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 && (
-            <p className="text-sm text-muted-foreground">Ask anything grounded in the current plan — tasks, leads, gates, or recent notes. For example: "What's blocking the April launch gate?" or "Which tasks are overdue?"</p>
+            <p className="text-sm text-muted-foreground">
+              {label
+                ? 'Edit the question below, or send it as-is — the advisor has the full plan, not just this item.'
+                : 'Ask anything grounded in the current plan — tasks, leads, gates, or recent notes. For example: "What\'s blocking the April launch gate?" or "Which tasks are overdue?"'}
+            </p>
           )}
           {messages.map((m, i) => (
             <div key={i} className={cn('rounded-lg px-3 py-2 text-sm max-w-[90%]', m.role === 'user' ? 'bg-primary text-primary-foreground ml-auto' : 'bg-secondary')}>

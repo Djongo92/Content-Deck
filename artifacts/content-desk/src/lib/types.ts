@@ -238,11 +238,18 @@ export type LaunchRecurringTask = {
   lastGeneratedOn: string | null;
 };
 
+export type PortfolioHighlight = { label: string; value: string };
+export type PortfolioSection = { heading: string; body: string };
+
 export type CaseStudy = {
   id: string;
-  clientId: string;
+  clientId: string | null;
+  subject: string;
+  dateRange: string;
   title: string;
   narrative: string;
+  sections: PortfolioSection[];
+  highlights: PortfolioHighlight[];
   deliverableIds: string[];
   createdAt: string;
 };

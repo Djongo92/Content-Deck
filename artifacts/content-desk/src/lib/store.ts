@@ -317,7 +317,15 @@ function normalize(state: Partial<StoreState> | null | undefined): StoreState {
     launchSettings: s.launchSettings?.length ? s.launchSettings.map(ls => ({ ...DEFAULT_LAUNCH_SETTINGS, ...ls })) : [DEFAULT_LAUNCH_SETTINGS],
     launchActivity: (s.launchActivity ?? []).map(a => ({ ...a, refId: a.refId ?? null, refType: a.refType ?? null })),
     launchRecurringTasks: s.launchRecurringTasks ?? [],
-    caseStudies: (s.caseStudies ?? []).map(c => ({ ...c, deliverableIds: c.deliverableIds ?? [] })),
+    caseStudies: (s.caseStudies ?? []).map(c => ({
+      ...c,
+      clientId: c.clientId ?? null,
+      subject: c.subject ?? '',
+      dateRange: c.dateRange ?? '',
+      sections: c.sections ?? [],
+      highlights: c.highlights ?? [],
+      deliverableIds: c.deliverableIds ?? [],
+    })),
   };
 }
 

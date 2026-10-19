@@ -284,9 +284,16 @@ export const launchRecurringTasksTable = pgTable("launch_recurring_tasks", {
 // cross-table reference in this schema (no DB-level FK).
 export const caseStudiesTable = pgTable("case_studies", {
   id: text("id").primaryKey(),
-  clientId: text("client_id").notNull().default(""),
+  // Optional: a case study's subject doesn't have to be a Content Desk
+  // client (past agency/editorial work, for instance) -- subject is the
+  // real identity field; clientId is just an optional link for evidence.
+  clientId: text("client_id"),
+  subject: text("subject").notNull().default(""),
+  dateRange: text("date_range").notNull().default(""),
   title: text("title").notNull().default(""),
   narrative: text("narrative").notNull().default(""),
+  sections: jsonb("sections").$type<{ heading: string; body: string }[]>().notNull().default([]),
+  highlights: jsonb("highlights").$type<{ label: string; value: string }[]>().notNull().default([]),
   deliverableIds: jsonb("deliverable_ids").$type<string[]>().notNull().default([]),
   createdAt: text("created_at").notNull().default(""),
 });

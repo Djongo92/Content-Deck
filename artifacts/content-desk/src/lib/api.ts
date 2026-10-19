@@ -68,8 +68,8 @@ export const api = {
     req<{ text: string }>('/api/content-ai/transcribe', { method: 'POST', body: JSON.stringify({ audio }) }),
 
   caseStudyDraft: (body: {
-    clientName: string; voice?: string;
-    pieces: { title: string; platform: string; copy: string; views: number; likes: number; comments: number; shares: number }[];
+    clientName?: string; subject?: string; voice?: string; notes?: string;
+    pieces?: { title: string; platform: string; copy: string; views: number; likes: number; comments: number; shares: number }[];
   }) => req<{ narrative: string }>('/api/content-ai/case-study-draft', { method: 'POST', body: JSON.stringify(body) }),
 
   requestUploadUrl: (meta: { name: string; size: number; contentType: string }) =>

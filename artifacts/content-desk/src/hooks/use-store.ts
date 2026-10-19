@@ -441,13 +441,20 @@ export function useMutateStore() {
 
   // --- Case studies -------------------------------------------------------------
 
-  const addCaseStudy = useCallback((input: { clientId: string; title: string; narrative: string; deliverableIds: string[] }) => {
+  const addCaseStudy = useCallback((input: {
+    clientId: string | null; subject: string; dateRange: string; title: string; narrative: string;
+    sections: StoreState['caseStudies'][0]['sections']; highlights: StoreState['caseStudies'][0]['highlights']; deliverableIds: string[];
+  }) => {
     const s = store.get();
     const study = {
       id: uuidv4(),
       clientId: input.clientId,
-      title: input.title.trim() || 'Untitled case study',
+      subject: input.subject.trim(),
+      dateRange: input.dateRange.trim(),
+      title: input.title.trim() || `${input.subject.trim() || 'Untitled'} case study`,
       narrative: input.narrative,
+      sections: input.sections,
+      highlights: input.highlights,
       deliverableIds: input.deliverableIds,
       createdAt: new Date().toISOString(),
     };

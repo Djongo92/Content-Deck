@@ -1,13 +1,12 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { addDays, format, isAfter, isBefore, isSameMonth, startOfDay, subDays, subMonths } from 'date-fns';
-import { AlertTriangle, BarChart3, BookOpen, Clock3, FileCheck2, FileText, Import, Layout, ShieldAlert, Sparkles, Target, TrendingUp, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Clock3, FileCheck2, FileText, Import, Layout, ShieldAlert, Sparkles, Target, TrendingUp, X } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api } from '@/lib/api';
 import { ClientReportModal } from '@/components/client-report-modal';
-import { CaseStudyWizard } from '@/components/case-study-wizard';
-import type { CaseStudy, Deliverable, PerformanceMetrics } from '@/lib/types';
+import type { Deliverable, PerformanceMetrics } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 type ReportMetrics = Required<PerformanceMetrics>;
@@ -17,13 +16,11 @@ const engagement = (metrics: ReportMetrics) => metrics.likes + metrics.comments 
 const compact = (value: number) => Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 
 export default function ReportsPage() {
-  const { deliverables, clients, metrics, versions, assets, caseStudies } = useStore();
-  const { addBrief, deleteCaseStudy } = useMutateStore();
+  const { deliverables, clients, metrics, versions, assets } = useStore();
+  const { addBrief } = useMutateStore();
   const [, navigate] = useLocation();
   const [importOpen, setImportOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [caseStudyWizardOpen, setCaseStudyWizardOpen] = useState(false);
-  const [editingCaseStudy, setEditingCaseStudy] = useState<CaseStudy | null>(null);
   const [importText, setImportText] = useState('');
   const [importing, setImporting] = useState(false);
   const [unmatched, setUnmatched] = useState<string[]>([]);
@@ -184,39 +181,10 @@ export default function ReportsPage() {
           <p className="mt-1 text-sm text-muted-foreground">Decisions across every client and platform</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={() => setCaseStudyWizardOpen(true)} className="flex items-center gap-2 rounded-md border border-border bg-secondary px-4 py-2 text-sm font-medium hover:border-primary"><BookOpen className="h-4 w-4" /> New case study</button>
           <button onClick={() => setReportOpen(true)} className="flex items-center gap-2 rounded-md border border-border bg-secondary px-4 py-2 text-sm font-medium hover:border-primary"><FileText className="h-4 w-4" /> Client report</button>
           <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110"><Import className="h-4 w-4" /> Import metrics</button>
         </div>
       </header>
-
-      {caseStudies.length > 0 && (
-        <section className="mb-8 overflow-hidden rounded-xl border border-border bg-card">
-          <div className="border-b border-border p-6"><h2 className="font-serif text-xl">Case studies</h2></div>
-          <div className="divide-y divide-border">
-            {caseStudies.map(cs => {
-              const client = clients.find(c => c.id === cs.clientId);
-              return (
-                <div key={cs.id} className="flex items-center justify-between gap-4 p-5">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{cs.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{client?.name ?? 'Unknown client'} · {format(new Date(cs.createdAt), 'MMM d, yyyy')}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => setEditingCaseStudy(cs)} className="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary">Open</button>
-                    <button
-                      onClick={() => { if (confirm('Delete this case study?')) deleteCaseStudy(cs.id); }}
-                      className="text-xs text-destructive hover:underline px-1"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       <section className="mb-8 rounded-xl border border-border bg-card p-6">
         <h2 className="mb-4 font-serif text-xl">Weekly brief</h2>
@@ -294,8 +262,6 @@ export default function ReportsPage() {
       </section>
 
       {reportOpen && <ClientReportModal onClose={() => setReportOpen(false)} />}
-      {caseStudyWizardOpen && <CaseStudyWizard onClose={() => setCaseStudyWizardOpen(false)} />}
-      {editingCaseStudy && <CaseStudyWizard existing={editingCaseStudy} onClose={() => setEditingCaseStudy(null)} />}
 
       {importOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">

@@ -300,13 +300,20 @@ router.post("/content-ai/transcribe", async (req, res) => {
 // --- Case study drafting ------------------------------------------------------
 
 router.post("/content-ai/case-study-draft", async (req, res) => {
-  const { clientName = "", voice = "", pieces = [] } = req.body as {
+  const { clientName = "", subject = "", voice = "", notes = "", pieces = [] } = req.body as {
     clientName?: string;
+    subject?: string;
     voice?: string;
+    notes?: string;
     pieces?: { title: string; platform: string; copy: string; views: number; likes: number; comments: number; shares: number }[];
   };
-  if (!clientName.trim() || !Array.isArray(pieces) || !pieces.length) {
-    res.status(400).json({ error: "Pick a client and at least one piece of work first." });
+  const who = subject.trim() || clientName.trim();
+  if (!who) {
+    res.status(400).json({ error: "Add a subject first." });
+    return;
+  }
+  if (!notes.trim() && (!Array.isArray(pieces) || !pieces.length)) {
+    res.status(400).json({ error: "Add some rough notes, or select work to draft from." });
     return;
   }
   try {
@@ -321,10 +328,11 @@ router.post("/content-ai/case-study-draft", async (req, res) => {
         {
           role: "user",
           content: [
-            `Draft a short case study narrative (3-4 short paragraphs: context, approach, results) for the client "${clientName}".`,
-            voice ? `Client voice notes: ${voice}` : "",
-            `Selected work to build the narrative from:\n${pieces.map(p => `- "${p.title}" (${p.platform}): ${p.views || 0} views, ${p.likes || 0} likes, ${p.comments || 0} comments, ${p.shares || 0} shares. Copy: ${p.copy.slice(0, 300)}`).join("\n")}`,
-            "Write in third person about the studio's work for this client. No headings, no bullet points, just prose. Ground every claim in the data given.",
+            `Draft a short case study narrative (3-4 short paragraphs: context, approach, results) for "${who}".`,
+            voice ? `Voice notes: ${voice}` : "",
+            notes.trim() ? `Rough notes to build the narrative from (ground every claim in these, never invent beyond them):\n${notes.trim()}` : "",
+            pieces.length ? `Selected work to build the narrative from:\n${pieces.map(p => `- "${p.title}" (${p.platform}): ${p.views || 0} views, ${p.likes || 0} likes, ${p.comments || 0} comments, ${p.shares || 0} shares. Copy: ${p.copy.slice(0, 300)}`).join("\n")}` : "",
+            "Write in third person about the studio's work for this subject. No headings, no bullet points, just prose. Ground every claim in the data given.",
           ].filter(Boolean).join("\n\n"),
         },
       ],

@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { addDays, addWeeks, differenceInCalendarWeeks, format, formatDistanceToNow, startOfWeek } from 'date-fns';
 import { toast } from 'sonner';
-import { Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, History, Printer, Repeat, Send, Loader2, ShieldAlert } from 'lucide-react';
+import { BookOpen, Sparkles, X, ExternalLink, CheckCircle2, Check, GripVertical, History, Printer, Repeat, Send, Loader2, ShieldAlert } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { api, type ProposedChange } from '@/lib/api';
-import { LAUNCH_PHASE_LABELS, LaunchActivity, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchRecurringTask, LaunchSettings, LaunchTask, STICKY_COLORS } from '@/lib/types';
+import { CaseStudy, LAUNCH_PHASE_LABELS, LaunchActivity, LaunchGate, LaunchLead, LaunchLeadStatus, LaunchNote, LaunchRecurringTask, LaunchSettings, LaunchTask, STICKY_COLORS } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { CaseStudyWizard } from '@/components/case-study-wizard';
 
 const LEAD_STATUSES: LaunchLeadStatus[] = ['Lead', 'Contacted', 'Proposal', 'Active', 'Paused', 'Closed'];
 
@@ -1463,13 +1464,48 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // --- Brand & Settings ------------------------------------------------------------
 
 function BrandSettingsTab() {
-  const { launchSettings } = useStore();
-  const { updateLaunchSettings } = useMutateStore();
+  const { launchSettings, caseStudies } = useStore();
+  const { updateLaunchSettings, deleteCaseStudy } = useMutateStore();
   const settings = launchSettings[0];
+  const [caseStudyWizardOpen, setCaseStudyWizardOpen] = useState(false);
+  const [editingCaseStudy, setEditingCaseStudy] = useState<CaseStudy | null>(null);
   if (!settings) return null;
 
   return (
     <div className="space-y-6">
+      <div className="bg-card border border-border rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <h2 className="text-lg font-serif">Case studies</h2>
+            <p className="text-xs text-muted-foreground">Proof-of-work for the Selected Work page and the Battle Plan — not tied to a Content Desk client.</p>
+          </div>
+          <button onClick={() => setCaseStudyWizardOpen(true)} className="flex items-center gap-2 rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary shrink-0"><BookOpen className="h-3.5 w-3.5" /> New case study</button>
+        </div>
+        {caseStudies.length > 0 ? (
+          <div className="divide-y divide-border">
+            {caseStudies.map(cs => (
+              <div key={cs.id} className="flex items-center justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <p className="font-medium truncate text-sm">{cs.title}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{cs.subject || 'Untitled subject'}{cs.dateRange ? ` · ${cs.dateRange}` : ''} · {format(new Date(cs.createdAt), 'MMM d, yyyy')}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => setEditingCaseStudy(cs)} className="rounded-md border border-border bg-secondary px-3 py-1.5 text-xs font-medium hover:border-primary">Open</button>
+                  <button
+                    onClick={() => { if (confirm('Delete this case study?')) deleteCaseStudy(cs.id); }}
+                    className="text-xs text-destructive hover:underline px-1"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No case studies yet — click "New case study" to build one from past work.</p>
+        )}
+      </div>
+
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-card border border-border rounded-xl p-5">
           <h2 className="text-lg font-serif mb-3">Brand brief</h2>
@@ -1548,6 +1584,9 @@ function BrandSettingsTab() {
           </div>
         </div>
       </div>
+
+      {caseStudyWizardOpen && <CaseStudyWizard onClose={() => setCaseStudyWizardOpen(false)} />}
+      {editingCaseStudy && <CaseStudyWizard existing={editingCaseStudy} onClose={() => setEditingCaseStudy(null)} />}
     </div>
   );
 }

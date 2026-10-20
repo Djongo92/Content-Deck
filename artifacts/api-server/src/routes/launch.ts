@@ -10,10 +10,10 @@ import {
   launchGatesTable,
   launchSettingsTable,
 } from "@workspace/db";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { anthropic, extractText } from "@workspace/integrations-anthropic-ai-server";
 
 const router: IRouter = Router();
-const MODEL = "gpt-5.6-luna";
+const MODEL = "claude-haiku-5-5";
 
 const PHASE_LABELS = [
   "Foundation",
@@ -85,18 +85,18 @@ router.post("/launch/discuss", async (req: Request, res: Response) => {
     ]);
     const planSummary = summarizePlan({ settings: settingsRows[0], leads, tasks, notes, gates });
 
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 1200,
+      max_tokens: 1200,
+      system: DISCUSS_SYSTEM,
       messages: [
-        { role: "system", content: DISCUSS_SYSTEM },
         { role: "user", content: `Current plan data:\n\n${planSummary}` },
         ...(Array.isArray(history) ? history.slice(-10) : []),
         { role: "user", content: question },
       ],
     });
 
-    const result = completion.choices[0]?.message?.content?.trim();
+    const result = extractText(message);
     if (!result) {
       res.status(502).json({ error: "The advisor returned no answer." });
       return;
@@ -179,11 +179,11 @@ router.post("/launch/phases/:phase/amend", async (req: Request, res: Response) =
       phaseTasks.map((t) => `- [${t.id}] ${t.title} (due ${t.due || "no date"}, owner ${t.owner}, ${t.done ? "done" : "open"})`).join("\n") ||
       "(no tasks yet)";
 
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 1200,
+      max_tokens: 1200,
+      system: AMEND_SYSTEM,
       messages: [
-        { role: "system", content: AMEND_SYSTEM },
         {
           role: "user",
           content: `Full plan context:\n\n${planSummary}\n\nPhase being discussed: "${phaseLabel}" (index ${phase}).\nCurrent tasks in this phase:\n${tasksBlock}`,
@@ -193,7 +193,7 @@ router.post("/launch/phases/:phase/amend", async (req: Request, res: Response) =
       ],
     });
 
-    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+    const raw = extractText(message);
     const match = raw.match(/\{[\s\S]*\}/);
     let parsed: { reply?: unknown; changes?: unknown } | null = null;
     try {
@@ -232,16 +232,16 @@ router.post("/launch/devils-advocate", async (req: Request, res: Response) => {
     ]);
     const planSummary = summarizePlan({ settings: settingsRows[0], leads, tasks, notes, gates });
 
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 900,
+      max_tokens: 900,
+      system: DEVILS_ADVOCATE_SYSTEM,
       messages: [
-        { role: "system", content: DEVILS_ADVOCATE_SYSTEM },
         { role: "user", content: `Current plan data:\n\n${planSummary}` },
       ],
     });
 
-    const critique = completion.choices[0]?.message?.content?.trim();
+    const critique = extractText(message);
     if (!critique) {
       res.status(502).json({ error: "The reality check returned nothing." });
       return;

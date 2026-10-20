@@ -10,7 +10,7 @@
   "include": ["src"],
   "references": [
     {
-      "path": "../../lib/integrations-openai-ai-server"
+      "path": "../../lib/integrations-anthropic-ai-server"
     },
     {
       "path": "../../lib/db"

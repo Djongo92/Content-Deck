@@ -1,17 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link as LinkIcon, Loader2, Mic, Square, X } from 'lucide-react';
+import { Link as LinkIcon, Mic, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutateStore, useStore } from '@/hooks/use-store';
-import { api } from '@/lib/api';
 import { OPEN_QUICK_CAPTURE_EVENT } from '@/components/command-palette';
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+function getSpeechRecognitionCtor(): (new () => SpeechRecognition) | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return window.SpeechRecognition ?? window.webkitSpeechRecognition;
 }
 
 export function QuickCapture() {
@@ -22,10 +17,12 @@ export function QuickCapture() {
   const [url, setUrl] = useState('');
   const [clientId, setClientId] = useState('');
   const [recording, setRecording] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const stopRequestedRef = useRef(false);
+  const baseTextRef = useRef('');
+  const finalTranscriptRef = useRef('');
+  const speechSupported = !!getSpeechRecognitionCtor();
 
   useEffect(() => {
     const openCapture = () => setOpen(true);
@@ -50,45 +47,65 @@ export function QuickCapture() {
     if (open) requestAnimationFrame(() => textareaRef.current?.focus());
   }, [open]);
 
+  function stopRecording() {
+    stopRequestedRef.current = true;
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setRecording(false);
+  }
+
   const close = () => {
-    if (recording) mediaRecorderRef.current?.stop();
+    if (recording) stopRecording();
     setOpen(false);
     setText('');
     setUrl('');
     setClientId('');
   };
 
-  async function startRecording() {
+  function startRecording() {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) {
+      toast.error("Voice capture isn't supported in this browser — try Chrome or Edge.");
+      return;
+    }
+    const recognition = new Ctor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language || 'en-US';
+    baseTextRef.current = text;
+    finalTranscriptRef.current = '';
+    stopRequestedRef.current = false;
+
+    recognition.onresult = event => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) finalTranscriptRef.current += result[0].transcript;
+        else interim += result[0].transcript;
+      }
+      const spoken = (finalTranscriptRef.current + interim).trim();
+      setText([baseTextRef.current, spoken].filter(Boolean).join('\n'));
+    };
+    recognition.onerror = event => {
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      toast.error('Microphone access was denied or voice capture failed.');
+      stopRecording();
+    };
+    recognition.onend = () => {
+      // Some browsers end the session after a pause even in continuous mode --
+      // restart automatically unless the user actually hit stop.
+      if (!stopRequestedRef.current) {
+        try { recognition.start(); } catch { /* already running */ }
+      }
+    };
+
+    recognitionRef.current = recognition;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-      recorder.ondataavailable = event => { if (event.data.size) chunksRef.current.push(event.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(track => track.stop());
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        setTranscribing(true);
-        try {
-          const dataUrl = await blobToDataUrl(blob);
-          const { text: transcribed } = await api.transcribe(dataUrl);
-          if (transcribed) setText(current => current.trim() ? `${current}\n${transcribed}` : transcribed);
-        } catch (error) {
-          toast.error(error instanceof Error ? error.message : 'Could not transcribe that recording.');
-        } finally {
-          setTranscribing(false);
-        }
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
+      recognition.start();
       setRecording(true);
     } catch {
-      toast.error('Microphone access was denied or unavailable.');
+      toast.error('Could not start voice capture.');
     }
-  }
-
-  function stopRecording() {
-    mediaRecorderRef.current?.stop();
-    setRecording(false);
   }
 
   const save = () => {
@@ -108,17 +125,18 @@ export function QuickCapture() {
           <div className="flex items-center gap-1">
             <button
               onClick={recording ? stopRecording : startRecording}
-              title={recording ? 'Stop recording' : 'Record a voice note'}
-              className={recording ? 'rounded-md p-1.5 text-destructive animate-pulse' : 'rounded-md p-1.5 text-muted-foreground hover:text-foreground'}
+              disabled={!speechSupported}
+              title={speechSupported ? (recording ? 'Stop recording' : 'Record a voice note') : "Voice capture isn't supported in this browser"}
+              className={recording ? 'rounded-md p-1.5 text-destructive animate-pulse' : 'rounded-md p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-40'}
             >
               {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </button>
             <button onClick={close} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
           </div>
         </div>
-        {(recording || transcribing) && (
+        {recording && (
           <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-            {transcribing ? <><Loader2 className="h-3 w-3 animate-spin" /> Transcribing…</> : 'Recording… click the square to stop.'}
+            Listening… click the square to stop.
           </p>
         )}
         <textarea

@@ -1,12 +1,11 @@
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
-import { openai } from "@workspace/integrations-openai-ai-server";
-import { speechToText } from "@workspace/integrations-openai-ai-server/audio";
+import { anthropic, extractText } from "@workspace/integrations-anthropic-ai-server";
 import { db, voiceExamplesTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
-const MODEL = "gpt-5.6-luna";
+const MODEL = "claude-haiku-5-5";
 
 const allowedActions = new Set([
   "rewrite",
@@ -95,11 +94,11 @@ router.post("/content-ai", async (req, res) => {
 
   try {
     const voiceProfile = await buildVoiceProfile(clientId);
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 2000,
+      max_tokens: 2000,
+      system: EDITOR_SYSTEM,
       messages: [
-        { role: "system", content: EDITOR_SYSTEM },
         {
           role: "user",
           content: [
@@ -116,7 +115,7 @@ router.post("/content-ai", async (req, res) => {
       ],
     });
 
-    const result = completion.choices[0]?.message?.content?.trim();
+    const result = extractText(message);
     if (!result) {
       res.status(502).json({ error: "The writing assistant returned no copy." });
       return;
@@ -137,15 +136,12 @@ router.post("/content-ai/clarify", async (req, res) => {
     return;
   }
   try {
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 200,
+      max_tokens: 200,
+      system:
+        "You are a senior editor deciding whether a brief is clear enough to write from. If one missing fact or decision would materially change the output (audience, goal, offer, date, angle), ask exactly ONE sharp question. If the brief is workable, reply with exactly: CLEAR. Never ask more than one question. Never ask about style preferences.",
       messages: [
-        {
-          role: "system",
-          content:
-            "You are a senior editor deciding whether a brief is clear enough to write from. If one missing fact or decision would materially change the output (audience, goal, offer, date, angle), ask exactly ONE sharp question. If the brief is workable, reply with exactly: CLEAR. Never ask more than one question. Never ask about style preferences.",
-        },
         {
           role: "user",
           content: [
@@ -157,7 +153,7 @@ router.post("/content-ai/clarify", async (req, res) => {
         },
       ],
     });
-    const out = completion.choices[0]?.message?.content?.trim() ?? "";
+    const out = extractText(message);
     res.json({ question: !out || out === "CLEAR" || out.startsWith("CLEAR") ? null : out.replace(/^Question:\s*/i, "") });
   } catch (error) {
     req.log.error({ error }, "Clarify request failed");
@@ -188,11 +184,11 @@ router.post("/content-ai/draft-week", async (req, res) => {
   }
   try {
     const voiceProfile = await buildVoiceProfile(clientId);
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 6000,
+      max_tokens: 6000,
+      system: EDITOR_SYSTEM + " Respond with STRICT JSON only, no markdown fences.",
       messages: [
-        { role: "system", content: EDITOR_SYSTEM + " Respond with STRICT JSON only, no markdown fences." },
         {
           role: "user",
           content: [
@@ -209,7 +205,7 @@ router.post("/content-ai/draft-week", async (req, res) => {
         },
       ],
     });
-    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+    const raw = extractText(message);
     const match = raw.match(/\{[\s\S]*\}/);
     let parsed: { drafts?: unknown } | null = null;
     try {
@@ -233,32 +229,32 @@ router.post("/content-ai/draft-week", async (req, res) => {
 
 router.post("/content-ai/auto-tag", async (req, res) => {
   const { image = "" } = req.body as { image?: string };
-  if (!image.startsWith("data:image/")) {
-    res.status(400).json({ error: "Provide the image as a data URL." });
+  const match = image.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/);
+  if (!match) {
+    res.status(400).json({ error: "Provide the image as a png, jpeg, gif, or webp data URL." });
     return;
   }
+  const [, subtype, data] = match;
+  const mediaType = (subtype === "jpg" ? "image/jpeg" : `image/${subtype}`) as "image/png" | "image/jpeg" | "image/gif" | "image/webp";
   try {
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 300,
+      max_tokens: 300,
+      system:
+        "You describe images for a media library. Respond with STRICT JSON only: {\"altText\":\"one accurate, specific sentence for screen readers\",\"tags\":[\"3-6 lowercase search tags\"]}. Describe what is literally visible; never guess names, brands, or locations you cannot see.",
       messages: [
-        {
-          role: "system",
-          content:
-            "You describe images for a media library. Respond with STRICT JSON only: {\"altText\":\"one accurate, specific sentence for screen readers\",\"tags\":[\"3-6 lowercase search tags\"]}. Describe what is literally visible; never guess names, brands, or locations you cannot see.",
-        },
         {
           role: "user",
           content: [
+            { type: "image", source: { type: "base64", media_type: mediaType, data } },
             { type: "text", text: "Describe this image." },
-            { type: "image_url", image_url: { url: image } },
-          ] as never,
+          ],
         },
       ],
     });
-    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
-    const match = raw.match(/\{[\s\S]*\}/);
-    const parsed = match ? JSON.parse(match[0]) : null;
+    const raw = extractText(message);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
     if (!parsed?.altText) {
       res.status(502).json({ error: "Could not describe this image." });
       return;
@@ -270,30 +266,6 @@ router.post("/content-ai/auto-tag", async (req, res) => {
   } catch (error) {
     req.log.error({ error }, "Auto-tag request failed");
     res.status(502).json({ error: "Image description is temporarily unavailable." });
-  }
-});
-
-// --- Voice capture: transcribe a browser recording into draft text ----------
-
-router.post("/content-ai/transcribe", async (req, res) => {
-  const { audio = "" } = req.body as { audio?: string };
-  if (!audio.startsWith("data:audio/")) {
-    res.status(400).json({ error: "Provide the recording as a data URL." });
-    return;
-  }
-  try {
-    const base64 = audio.split(",")[1] ?? "";
-    const buffer = Buffer.from(base64, "base64");
-    if (!buffer.length) {
-      res.status(400).json({ error: "Empty recording." });
-      return;
-    }
-    const format = audio.includes("webm") ? "webm" : audio.includes("mpeg") || audio.includes("mp3") ? "mp3" : "wav";
-    const text = await speechToText(buffer, format);
-    res.json({ text: text.trim() });
-  } catch (error) {
-    req.log.error({ error }, "Transcription request failed");
-    res.status(502).json({ error: "Could not transcribe that recording." });
   }
 });
 
@@ -317,14 +289,11 @@ router.post("/content-ai/case-study-draft", async (req, res) => {
     return;
   }
   try {
-    const completion = await openai.chat.completions.create({
+    const message = await anthropic.messages.create({
       model: MODEL,
-      max_completion_tokens: 900,
+      max_tokens: 900,
+      system: EDITOR_SYSTEM + " You are drafting a short proof-of-work case study for a studio's own portfolio/pitch materials. Never invent results, numbers, or claims beyond what's given.",
       messages: [
-        {
-          role: "system",
-          content: EDITOR_SYSTEM + " You are drafting a short proof-of-work case study for a studio's own portfolio/pitch materials. Never invent results, numbers, or claims beyond what's given.",
-        },
         {
           role: "user",
           content: [
@@ -337,7 +306,7 @@ router.post("/content-ai/case-study-draft", async (req, res) => {
         },
       ],
     });
-    const narrative = completion.choices[0]?.message?.content?.trim();
+    const narrative = extractText(message);
     if (!narrative) {
       res.status(502).json({ error: "The assistant returned no draft." });
       return;

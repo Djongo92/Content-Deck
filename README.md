@@ -32,7 +32,7 @@ for reference but isn't required to run elsewhere).
 - `lib/db` — Drizzle schema and Postgres access (`pnpm --filter db run push` to sync)
 - `lib/api-spec` — OpenAPI spec + Orval codegen config
 - `lib/api-client-react`, `lib/api-zod` — generated API client hooks and Zod schemas
-- `lib/integrations-openai-ai-server` — OpenAI-backed client used by the AI writing tools
+- `lib/integrations-anthropic-ai-server` — Claude-backed client used by the AI writing tools
 - `scripts` — workspace maintenance scripts
 
 ## Run & operate
@@ -52,7 +52,7 @@ pnpm --filter db run push                     # push DB schema changes (dev only
 | Variable | Used for |
 |---|---|
 | `DATABASE_URL` | Postgres connection string. Required — the process won't boot without it. |
-| `AI_INTEGRATIONS_OPENAI_API_KEY`, `AI_INTEGRATIONS_OPENAI_BASE_URL` | AI writing features (`lib/integrations-openai-ai-server`). `BASE_URL` is required at boot. Set on Replit via its AI Integrations gateway — off-Replit, point these at your own OpenAI-compatible endpoint/key. |
+| `ANTHROPIC_API_KEY` | AI writing features (`lib/integrations-anthropic-ai-server`), on Claude Haiku 5.5. Required at boot. Get a key at console.anthropic.com. |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_STORAGE_BUCKET` | Media library storage (see "Media storage" below). Not required to boot — uploads just won't work until set. |
 | `PORT` | Port the server listens on. Also serves the built frontend when `NODE_ENV=production` (see Deploying). |
 | `NODE_ENV`, `LOG_LEVEL` | Standard server config |
@@ -105,8 +105,12 @@ project as the database:
 - Verified end-to-end against the real bucket: requested an upload URL,
   PUT a file through it, GET it back through the app, diffed the bytes.
 
-**AI writing features** still need `AI_INTEGRATIONS_OPENAI_BASE_URL`/`_API_KEY`
-pointed at a real OpenAI-compatible endpoint instead of Replit's gateway.
+**AI writing features** run on Claude (Haiku 5.5) via `ANTHROPIC_API_KEY` —
+get one at console.anthropic.com and set it in the Render dashboard.
+Voice-memo transcription runs entirely client-side on the browser's built-in
+Web Speech API, so it needs no key and costs nothing; it only works in
+browsers that support `SpeechRecognition` (Chrome/Edge; not Firefox, and
+only partial support in Safari).
 
 ## Restoring existing data
 

@@ -64,9 +64,6 @@ export const api = {
   autoTag: (image: string) =>
     req<{ altText: string; tags: string[] }>('/api/content-ai/auto-tag', { method: 'POST', body: JSON.stringify({ image }) }),
 
-  transcribe: (audio: string) =>
-    req<{ text: string }>('/api/content-ai/transcribe', { method: 'POST', body: JSON.stringify({ audio }) }),
-
   caseStudyDraft: (body: {
     clientName?: string; subject?: string; voice?: string; notes?: string;
     pieces?: { title: string; platform: string; copy: string; views: number; likes: number; comments: number; shares: number }[];

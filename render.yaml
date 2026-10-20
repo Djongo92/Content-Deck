@@ -13,11 +13,10 @@ services:
       # Supabase "content-desk" project -> Settings -> Database -> Connection string
       - key: DATABASE_URL
         sync: false
-      # Replit's own AI Integrations gateway -> point these at your own
-      # OpenAI-compatible endpoint/key instead (see README)
-      - key: AI_INTEGRATIONS_OPENAI_BASE_URL
-        sync: false
-      - key: AI_INTEGRATIONS_OPENAI_API_KEY
+      # console.anthropic.com -> API Keys. Powers every AI feature (Workshop,
+      # Launch's AI advisor, case-study drafting). Add the real value in the
+      # Render dashboard -> Environment; never commit it here.
+      - key: ANTHROPIC_API_KEY
         sync: false
       # Media library uploads -> Supabase Storage (see README "Media storage").
       # The anon key is not a secret (it's meant to be public; the bucket's

@@ -9,6 +9,8 @@ import { TemplatesModal } from '@/components/templates-modal';
 import { useMutateStore, useStore } from '@/hooks/use-store';
 import { cn } from '@/lib/utils';
 
+const LAUNCH_FILTER_ID = '__launch__';
+
 export default function CalendarPage() {
   const { deliverables, events, clients, metrics, launchTasks } = useStore();
   const { updateDeliverable, updateEvent, generateFromTemplates } = useMutateStore();
@@ -21,19 +23,42 @@ export default function CalendarPage() {
   const [balanceView, setBalanceView] = useState(false);
   const activeClients = useMemo(() => clients.filter(client => !client.archived), [clients]);
   const clientMap = useMemo(() => Object.fromEntries(clients.map(client => [client.id, client])), [clients]);
+
+  // Client filter: which clients (and the pseudo "Algo-Rhythm launch" bucket)
+  // are currently shown. Hidden ids only hide active clients -- an archived
+  // client's past content stays visible, same as before this filter existed.
+  const [hiddenFilterIds, setHiddenFilterIds] = useState<Set<string>>(new Set());
+  const toggleFilter = (id: string) => setHiddenFilterIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const activeClientIds = useMemo(() => new Set(activeClients.map(client => client.id)), [activeClients]);
+  const isClientHidden = (clientId?: string | null) => !!clientId && activeClientIds.has(clientId) && hiddenFilterIds.has(clientId);
+  const showLaunchTasks = !hiddenFilterIds.has(LAUNCH_FILTER_ID);
+  const visibleClients = useMemo(() => activeClients.filter(client => !hiddenFilterIds.has(client.id)), [activeClients, hiddenFilterIds]);
+  const filteredDeliverables = useMemo(
+    () => deliverables.filter(deliverable => !isClientHidden(deliverable.clientId)),
+    [deliverables, activeClientIds, hiddenFilterIds]
+  );
+  const filteredEvents = useMemo(
+    () => events.filter(calendarEvent => !isClientHidden(calendarEvent.clientId)),
+    [events, activeClientIds, hiddenFilterIds]
+  );
+
   const unscheduled = useMemo(
-    () => deliverables.filter(deliverable => !deliverable.publishAt && !deliverable.productionDueAt),
-    [deliverables]
+    () => filteredDeliverables.filter(deliverable => !deliverable.publishAt && !deliverable.productionDueAt),
+    [filteredDeliverables]
   );
   const contentGaps = useMemo(() => {
     const now = new Date();
     const horizon = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-    return activeClients.filter(client => !deliverables.some(d => {
+    return visibleClients.filter(client => !deliverables.some(d => {
       if (d.clientId !== client.id || !d.publishAt) return false;
       const publishAt = parseISO(d.publishAt);
       return publishAt >= now && publishAt <= horizon;
     }));
-  }, [activeClients, deliverables]);
+  }, [visibleClients, deliverables]);
 
   useEffect(() => {
     generateFromTemplates(4);
@@ -57,28 +82,30 @@ export default function CalendarPage() {
       | { kind: 'event'; item: typeof events[number] }
       | { kind: 'launch'; item: typeof launchTasks[number] }
     >> = {};
-    deliverables.forEach(deliverable => {
+    filteredDeliverables.forEach(deliverable => {
       const date = deliverable.publishAt || deliverable.productionDueAt;
       if (!date) return;
       const key = format(parseISO(date), 'yyyy-MM-dd');
       (map[key] ||= []).push({ kind: 'content', item: deliverable });
     });
-    events.forEach(calendarEvent => {
+    filteredEvents.forEach(calendarEvent => {
       const key = format(parseISO(calendarEvent.startAt), 'yyyy-MM-dd');
       (map[key] ||= []).push({ kind: 'event', item: calendarEvent });
     });
     // Launch tasks are read-only here — surfaced for visibility, edited on the Launch page.
-    launchTasks.forEach(task => {
-      if (task.done || !task.due) return;
-      (map[task.due] ||= []).push({ kind: 'launch', item: task });
-    });
+    if (showLaunchTasks) {
+      launchTasks.forEach(task => {
+        if (task.done || !task.due) return;
+        (map[task.due] ||= []).push({ kind: 'launch', item: task });
+      });
+    }
     Object.values(map).forEach(items => items.sort((a, b) => {
       const aDate = a.kind === 'content' ? (a.item.publishAt || a.item.productionDueAt || '') : a.kind === 'event' ? a.item.startAt : a.item.due;
       const bDate = b.kind === 'content' ? (b.item.publishAt || b.item.productionDueAt || '') : b.kind === 'event' ? b.item.startAt : b.item.due;
       return aDate.localeCompare(bDate);
     }));
     return map;
-  }, [deliverables, events, launchTasks]);
+  }, [filteredDeliverables, filteredEvents, launchTasks, showLaunchTasks]);
 
   const monthHours = useMemo(() => Object.fromEntries(activeClients.map(client => {
     const hours = deliverables
@@ -122,7 +149,7 @@ export default function CalendarPage() {
   const balance = useMemo(() => {
     const counts: Record<string, number[][]> = {};
     const warnings: string[] = [];
-    activeClients.forEach(client => {
+    visibleClients.forEach(client => {
       counts[client.id] = monthWeeks.map(week => {
         const weekItems = deliverables.filter(deliverable => deliverable.clientId === client.id && deliverable.publishAt
           && week.some(day => isSameMonth(day, currentDate) && format(day, 'yyyy-MM-dd') === deliverable.publishAt?.slice(0, 10)));
@@ -136,7 +163,7 @@ export default function CalendarPage() {
       });
     });
     return { counts, warnings };
-  }, [activeClients, monthWeeks, deliverables, currentDate]);
+  }, [visibleClients, monthWeeks, deliverables, currentDate]);
 
   const openNewContent = (day?: Date) => {
     setNewTicketDate(day);
@@ -204,13 +231,41 @@ export default function CalendarPage() {
         </div>
       </header>
 
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Show:</span>
+        {activeClients.map(client => {
+          const hidden = hiddenFilterIds.has(client.id);
+          return (
+            <button
+              key={client.id}
+              onClick={() => toggleFilter(client.id)}
+              className={cn('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition', hidden && 'border-border bg-secondary/40 text-muted-foreground opacity-50')}
+              style={hidden ? undefined : { backgroundColor: `${client.color}22`, borderColor: `${client.color}60`, color: client.color }}
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: client.color }} />
+              {client.name}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => toggleFilter(LAUNCH_FILTER_ID)}
+          className={cn('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition', !showLaunchTasks && 'border-border bg-secondary/40 text-muted-foreground opacity-50')}
+          style={showLaunchTasks ? { backgroundColor: '#d94e3822', borderColor: '#d94e3860', color: '#d94e38' } : undefined}
+        >
+          <Rocket className="h-3 w-3" /> Algo-Rhythm launch
+        </button>
+        {hiddenFilterIds.size > 0 && (
+          <button onClick={() => setHiddenFilterIds(new Set())} className="text-xs text-primary hover:underline">Show all</button>
+        )}
+      </div>
+
       <div className="grid flex-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
         {balanceView ? (
           <section className="overflow-hidden rounded-xl border border-border bg-card">
             <div className="overflow-x-auto p-5">
               <table className="w-full min-w-[600px] text-sm">
                 <thead><tr><th className="pb-3 text-left font-medium text-muted-foreground">Client</th>{monthWeeks.map(week => <th key={week[0].toISOString()} className="pb-3 text-center font-medium text-muted-foreground">{format(week.find(day => isSameMonth(day, currentDate)) || week[0], 'MMM d')}</th>)}</tr></thead>
-                <tbody>{activeClients.map(client => (
+                <tbody>{visibleClients.map(client => (
                   <tr key={client.id} className="border-t border-border">
                     <td className="py-3 font-medium"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: client.color }} />{client.name}</td>
                     {monthWeeks.map((week, index) => {
@@ -409,7 +464,7 @@ export default function CalendarPage() {
           <h2 className="font-serif text-lg">Monthly capacity</h2>
           <p className="mb-5 mt-1 text-xs text-muted-foreground">Estimated hours for {format(currentDate, 'MMMM')}</p>
           <div className="space-y-6">
-            {activeClients.map(client => {
+            {visibleClients.map(client => {
               const hours = monthHours[client.id] || 0;
               const retainer = client.monthlyRetainerHours || 0;
               const percentage = retainer ? Math.round(hours / retainer * 100) : 0;

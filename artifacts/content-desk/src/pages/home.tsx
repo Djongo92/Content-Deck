@@ -23,13 +23,13 @@ export default function Home() {
 
   const dueTodayOrOverdue = useMemo(() => {
     return deliverables.filter(d => {
-      if (d.publishingStatus === 'published' || d.productionStatus === 'approved') return false;
-      if (!d.productionDueAt) return false;
-      const date = parseISO(d.productionDueAt);
+      if (d.publishingStatus === 'published') return false;
+      if (!d.publishAt) return false;
+      const date = parseISO(d.publishAt);
       return isPast(date) || isToday(date);
     }).sort((a, b) => {
-      const dateA = a.productionDueAt ? new Date(a.productionDueAt).getTime() : 0;
-      const dateB = b.productionDueAt ? new Date(b.productionDueAt).getTime() : 0;
+      const dateA = a.publishAt ? new Date(a.publishAt).getTime() : 0;
+      const dateB = b.publishAt ? new Date(b.publishAt).getTime() : 0;
       return dateA - dateB;
     });
   }, [deliverables]);
@@ -79,7 +79,7 @@ export default function Home() {
                 <div className="divide-y divide-border">
                   {dueTodayOrOverdue.map(deliv => {
                     const client = clientMap[deliv.clientId];
-                    const isOverdue = deliv.productionDueAt && isPast(parseISO(deliv.productionDueAt)) && !isToday(parseISO(deliv.productionDueAt));
+                    const isOverdue = deliv.publishAt && isPast(parseISO(deliv.publishAt)) && !isToday(parseISO(deliv.publishAt));
                     
                     return (
                       <div 
@@ -106,7 +106,7 @@ export default function Home() {
                         <div className="text-right flex-shrink-0">
                           <div className="text-xs text-muted-foreground flex items-center gap-1 justify-end">
                             <Clock className="w-3 h-3" />
-                            {deliv.productionDueAt ? format(parseISO(deliv.productionDueAt), 'MMM d, h:mm a') : 'No date'}
+                            {deliv.publishAt ? format(parseISO(deliv.publishAt), 'MMM d, h:mm a') : 'No date'}
                           </div>
                           <div className="mt-1 text-xs capitalize text-muted-foreground">
                             {deliv.productionStatus.replace('-', ' ')}

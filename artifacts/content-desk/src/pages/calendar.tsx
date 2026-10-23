@@ -111,7 +111,7 @@ export default function CalendarPage() {
     const hours = deliverables
       .filter(deliverable => deliverable.clientId === client.id && [deliverable.publishAt, deliverable.productionDueAt]
         .some(date => date && isSameMonth(parseISO(date), currentDate)))
-      .reduce((sum, deliverable) => sum + (deliverable.estimatedHours || 0), 0);
+      .reduce((sum, deliverable) => sum + (deliverable.actualHours || 0), 0);
     return [client.id, hours];
   })), [activeClients, deliverables, currentDate]);
 
